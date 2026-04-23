@@ -1,0 +1,7 @@
+{
+  "enabledPlugins": {
+    "frontend-design@claude-code-plugins": true,
+    "document-skills@anthropic-agent-skills": true,
+    "ork@orchestkit": true
+  }
+}

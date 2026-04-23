@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Environment variables
+.env
+.env.local
+agent-api/.env
+agent-page/.env
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+agent-api/data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+agent-api/logs/
+
+# test
+agent-api/tests/
+
+# User files
+user_files/
+
+# Frontend
+agent-page/node_modules/
+agent-page/build/
+agent-page/.env.local
+agent-page/.env.development.local
+agent-page/.env.test.local
+agent-page/.env.production.local
+agent-page/npm-debug.log*

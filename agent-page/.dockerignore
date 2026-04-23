@@ -1,0 +1,17 @@
+node_modules/
+build/
+coverage/
+.env
+.env.*
+!.env.example
+.DS_Store
+.vscode/
+.idea/
+
+# Git / CI
+.git/
+.github/
+
+# Local tools cache
+.npm/
+.eslintcache

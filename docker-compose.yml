@@ -1,0 +1,94 @@
+# One-click startup for Agent Craft.
+#
+#   Default (SQLite, 一键启动前后端):
+#     docker compose up -d --build
+#
+#   With Postgres instead of SQLite:
+#     docker compose --profile postgres up -d --build
+#     # (ensure DATABASE_URL in agent-api/.env is the postgres DSN below)
+#
+#   Stop:
+#     docker compose down
+#
+# Frontend:  http://localhost:3000
+# Backend:   http://localhost:8000   (also reachable via frontend at /api/*)
+# Postgres:  localhost:5432          (only when `--profile postgres`)
+
+services:
+  agent-api:
+    build:
+      context: ./agent-api
+      dockerfile: Dockerfile
+    image: agent-craft/agent-api:latest
+    container_name: agent-craft-api
+    restart: unless-stopped
+    env_file:
+      - ./agent-api/.env
+    environment:
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+    ports:
+      - "${AGENT_API_PORT:-8000}:8000"
+    volumes:
+      # Persist SQLite DB + user workspaces across rebuilds
+      - agent-api-data:/app/data
+      - agent-api-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Wait for postgres ONLY when postgres profile is active.
+    # depends_on is a no-op for the sqlite default path because the postgres
+    # service simply doesn't start without the profile.
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+  agent-page:
+    build:
+      context: ./agent-page
+      dockerfile: Dockerfile
+      args:
+        # Empty => frontend uses relative URLs; nginx proxies to agent-api.
+        # Set this if the frontend is hosted on a different origin from the backend.
+        REACT_APP_API_URL: "${REACT_APP_API_URL:-}"
+    image: agent-craft/agent-page:latest
+    container_name: agent-craft-page
+    restart: unless-stopped
+    ports:
+      - "${AGENT_PAGE_PORT:-3000}:80"
+    depends_on:
+      agent-api:
+        condition: service_started
+
+  # Optional: Postgres. Activate with `--profile postgres`.
+  # When active, set agent-api/.env:
+  #   DATABASE_URL=postgresql+asyncpg://agent:agent@postgres:5432/system_agent
+  #   CHECKPOINTER_TYPE=postgres
+  postgres:
+    image: postgres:16-alpine
+    container_name: agent-craft-postgres
+    restart: unless-stopped
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-agent}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-agent}"
+      POSTGRES_DB: "${POSTGRES_DB:-system_agent}"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-agent} -d $${POSTGRES_DB:-system_agent}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  agent-api-data:
+  agent-api-logs:
+  postgres-data:

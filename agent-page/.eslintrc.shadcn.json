@@ -1,0 +1,78 @@
+{
+  "rules": {
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "JSXOpeningElement[name.name='button']:not([name.object.name='Button'])",
+        "message": "禁止使用原生 <button> 元素。请使用 shadcn/ui 的 <Button> 组件: import { Button } from '@/components/ui/button'"
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='input']:not([name.object.name='Input'])",
+        "message": "禁止使用原生 <input> 元素。请使用 shadcn/ui 的 <Input> 组件: import { Input } from '@/components/ui/input'"
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='textarea']:not([name.object.name='Textarea'])",
+        "message": "禁止使用原生 <textarea> 元素。请使用 shadcn/ui 的 <Textarea> 组件: import { Textarea } from '@/components/ui/textarea'"
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='select']:not([name.object.name='Select'])",
+        "message": "禁止使用原生 <select> 元素。请使用 shadcn/ui 的 <Select> 组件: import { Select } from '@/components/ui/select'"
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='label']:not([name.object.name='Label'])",
+        "message": "禁止使用原生 <label> 元素。请使用 shadcn/ui 的 <Label> 组件: import { Label } from '@/components/ui/label'"
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='table']:not([name.object.name='Table'])",
+        "message": "禁止使用原生 <table> 元素。请使用 shadcn/ui 的 <Table> 组件: import { Table } from '@/components/ui/table'"
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='dialog']:not([name.object.name='Dialog'])",
+        "message": "禁止使用原生 <dialog> 元素。请使用 shadcn/ui 的 <Dialog> 组件: import { Dialog } from '@/components/ui/dialog'"
+      }
+    ],
+    "no-restricted-properties": [
+      "error",
+      {
+        "object": "*",
+        "property": "backgroundColor",
+        "message": "禁止使用硬编码的 backgroundColor。请使用 Tailwind 类名（如 'bg-primary'）或 CSS 变量"
+      },
+      {
+        "object": "*",
+        "property": "color",
+        "message": "禁止直接设置 color 属性。请使用 Tailwind 类名（如 'text-foreground'）或 CSS 变量"
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["*.tsx", "*.jsx"],
+      "rules": {
+        "react/forbid-elements": [
+          "error",
+          {
+            "forbid": [
+              {
+                "element": "button",
+                "message": "使用 <Button> 组件替代原生 <button>"
+              },
+              {
+                "element": "input",
+                "message": "使用 <Input> 组件替代原生 <input>"
+              },
+              {
+                "element": "textarea",
+                "message": "使用 <Textarea> 组件替代原生 <textarea>"
+              },
+              {
+                "element": "select",
+                "message": "使用 <Select> 组件替代原生 <select>"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
