@@ -53,6 +53,7 @@ Agent Craft 是一个**可扩展的对话式 Agent 平台**：
 | ------------------------------------------------------ | --------------------------------------------------------------- |
 | 写 LangGraph 节点、工具调用循环、敏感操作中断/恢复     | Agent 引擎现成，工具/技能装饰器声明即可                         |
 | 抽象多 LLM provider、密钥管理、运行时切换              | 内置 OpenAI / Qwen / GLM / 豆包 / Gemini 等 6 类适配，UI 可切换 |
+| 给每个 API 手写 Pydantic schema、curl→工具的转换、技能编排 prompt | **AI 配置助手**：贴 curl 自动生成工具；自然语言描述自动编排技能 |
 | 搭用户体系（注册、登录、JWT、角色、API Key）            | 三级角色 + API Key + 完整 Web 控制台                            |
 | 工具治理：哪些工具属于谁、能否启停、能否下发给团队     | 个人/全局两个空间 + 启停 + 下发 + 来源标记                       |
 | MCP 协议接入、stdio/HTTP/SSE transport 适配             | 「添加 MCP Server」一键发现并批量导入                            |
@@ -110,6 +111,10 @@ Agent Craft 是一个**可扩展的对话式 Agent 平台**：
 - **支持的工具协议**：
   - **REST API**：手填或 AI 生成 endpoint / auth / 请求映射 / 响应映射，带轮询、重试、媒体落盘
   - **MCP (Model Context Protocol)**：作为 Client 接入外部 MCP Server，支持 Streamable HTTP / SSE / stdio 三种 transport；前端「添加 MCP Server」一键发现并批量导入 server 上的工具
+- **AI 辅助生成**（在「工具管理」/「技能管理」页内嵌的「AI 配置助手」）：
+  - **工具**：直接把 `curl` 命令、API 文档片段、或自然语言描述贴进去，LLM 自动拆出 endpoint、HTTP method、headers、auth 类型、参数 schema、请求/响应映射，把具体示例值替换为 `{{param}}` 占位符 —— 一键填进表单，校对后保存即可
+  - **技能**：用自然语言描述想要的业务流程（"先查用户订单，再调审批接口，最后发飞书通知"），LLM 从**当前已有的工具列表**里自动匹配可用工具、生成 prompt 模板、列出 `required_tools` 依赖；缺什么工具会标出来让你先去补
+  - 编辑现有工具/技能时也可继续用助手追加修改，不用从零写
 
 ### 多用户与权限
 
