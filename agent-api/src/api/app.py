@@ -55,6 +55,7 @@ import os
 import traceback
 from datetime import datetime
 from src.config import settings as app_settings
+from src.models.base import utc_now as _utc_now
 
 
 # Global graph instance
@@ -546,10 +547,10 @@ async def chat_stream(
                             if conv:
                                 conv.message_count = _count
                                 conv.last_message = _last
-                                conv.updated_at = datetime.now()
+                                conv.updated_at = _utc_now()
                                 if _title and not conv.title: conv.title = _title
                             else:
-                                _now = datetime.now()
+                                _now = _utc_now()
                                 _db.add(_CH(user_id=_uid, thread_id=request.thread_id, title=_title or "新对话",
                                            message_count=_count, last_message=_last, created_at=_now, updated_at=_now))
                             await _db.commit()

@@ -1,7 +1,6 @@
 """Tool models for JSON-based tool system."""
 from sqlalchemy import Column, String, Integer, Boolean, Text, DateTime, ForeignKey, JSON
-from datetime import datetime
-from src.models.base import Base
+from src.models.base import Base, utc_now
 
 
 class AdminTool(Base):
@@ -34,8 +33,8 @@ class AdminTool(Base):
     enabled = Column(Boolean, default=True)
     is_builtin = Column(Boolean, default=False)
 
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
 class UserTool(Base):
@@ -68,8 +67,8 @@ class UserTool(Base):
     # 来源：admin_assigned, user_created
     source = Column(String(20), default="user_created")
 
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         {'sqlite_autoincrement': True},

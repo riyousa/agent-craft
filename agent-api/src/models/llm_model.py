@@ -7,9 +7,8 @@ model id, and various display / availability flags.
 The agent's `get_llm()` resolves a model by id, builds an OpenAI-compatible
 client, and caches it for the lifetime of the process.
 """
-from datetime import datetime
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, JSON, Text
-from src.models.base import Base
+from src.models.base import Base, utc_now
 
 
 class LLMModel(Base):
@@ -46,5 +45,5 @@ class LLMModel(Base):
 
     sort_order = Column(Integer, default=0, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)

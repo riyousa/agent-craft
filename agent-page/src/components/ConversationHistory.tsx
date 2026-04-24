@@ -55,14 +55,25 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   const [editTitle, setEditTitle] = useState('');
   const [sortBy, setSortBy] = useState<string>('time-desc');
 
+  // Same UTC-coercion trick as formatDate — without it ordering is correct
+  // (all rows shifted by the same 8h) but adding new conversations during the
+  // same browser session would compare TZ-tagged "Date.now()" against shifted
+  // UTC strings.
+  const parseServerTime = (s: string | null | undefined): number => {
+    if (!s) return 0;
+    const hasTz = /Z$|[+\-]\d{2}:?\d{2}$/.test(s);
+    const t = new Date(hasTz ? s : s + 'Z').getTime();
+    return isNaN(t) ? 0 : t;
+  };
+
   const sortedConversations = useMemo(() => {
     const sorted = [...conversations];
     switch (sortBy) {
       case 'time-desc':
-        sorted.sort((a, b) => new Date(b.updated_at || '').getTime() - new Date(a.updated_at || '').getTime());
+        sorted.sort((a, b) => parseServerTime(b.updated_at) - parseServerTime(a.updated_at));
         break;
       case 'time-asc':
-        sorted.sort((a, b) => new Date(a.updated_at || '').getTime() - new Date(b.updated_at || '').getTime());
+        sorted.sort((a, b) => parseServerTime(a.updated_at) - parseServerTime(b.updated_at));
         break;
       case 'messages':
         sorted.sort((a, b) => (b.message_count || 0) - (a.message_count || 0));
@@ -151,7 +162,14 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   const formatDate = (dateString: string | null | undefined) => {
     if (!dateString) return '未知时间';
 
-    const date = new Date(dateString);
+    // Backend stores naive datetimes (server is UTC inside the container)
+    // and serializes them WITHOUT a timezone marker, e.g. "2026-04-24T10:00:00".
+    // Browser's Date() treats such strings as local time → in a CST (UTC+8)
+    // browser the parsed instant is 8h earlier than reality, so the relative
+    // formatter below would print "8小时前". Force UTC interpretation by
+    // appending Z when no offset is present.
+    const hasTz = /Z$|[+\-]\d{2}:?\d{2}$/.test(dateString);
+    const date = new Date(hasTz ? dateString : dateString + 'Z');
     if (isNaN(date.getTime())) return '未知时间';
 
     const now = new Date();

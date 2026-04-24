@@ -1,7 +1,6 @@
 """Workspace and file models."""
-from datetime import datetime
 from sqlalchemy import Column, String, Integer, Boolean, Text, DateTime, ForeignKey, BigInteger
-from src.models.base import Base
+from src.models.base import Base, utc_now
 
 
 class UserWorkspace(Base):
@@ -15,8 +14,8 @@ class UserWorkspace(Base):
     max_storage_mb = Column(Integer, default=1000)
     used_storage_mb = Column(Integer, default=0)
 
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         {'sqlite_autoincrement': True},
@@ -40,8 +39,8 @@ class UserFile(Base):
     description = Column(Text)
     is_deleted = Column(Boolean, default=False)
 
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         {'sqlite_autoincrement': True},
@@ -60,8 +59,8 @@ class ConversationHistory(Base):
     message_count = Column(Integer, default=0)
     last_message = Column(Text)
 
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         {'sqlite_autoincrement': True},
