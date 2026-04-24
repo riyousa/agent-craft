@@ -29,6 +29,7 @@
 - [部署](#部署)
 - [更新到最新版本](#更新到最新版本)
 - [文档](#文档)
+- [应用截图](#应用截图)
 - [开源协议](#开源协议)
 
 ---
@@ -92,7 +93,6 @@ Agent Craft 是一个**可扩展的对话式 Agent 平台**：
 - **多模型可切换**：支持任意 OpenAI 兼容端点；模型由超管在「全局管理 → 模型管理」配置（API Key 支持 `${ENV_VAR}` 占位符），用户在对话框顶部按需切换。
 
 ### 工具与技能体系
-
 工具 / 技能分为两类：
 
 | 形态           | 注册方式                              | 存储     | 是否可管理              | 典型用途                                    |
@@ -210,7 +210,7 @@ Agent Craft 是一个**可扩展的对话式 Agent 平台**：
        │
        ▼
 ┌────────────────┐               ┌────────────────────┐
-│ Volcano LLM    │               │  LangSmith (可选)   │
+│      LLM       │               │  LangSmith (可选)   │
 └────────────────┘               └────────────────────┘
 ```
 
@@ -224,7 +224,7 @@ agent-craft/
 │   ├── alembic/  alembic.ini        # 数据库迁移（PostgreSQL）
 │   ├── .env / .env.example          # 环境配置
 │   ├── data/                        # SQLite DB + 用户工作空间
-│   ├── logs/                        # 运行日志（按天滚动）
+│   ├── logs/                        # 运行日志
 │   ├── scripts/                     # init_db.py 等初始化脚本
 │   ├── tests/                       # pytest 测试
 │   └── src/
@@ -547,6 +547,21 @@ docker compose restart agent-api
 ---
 
 > 仅维护以上 3 个 Markdown 文档，功能变更直接更新对应章节。
+
+## 应用截图
+
+![主界面](images/image.png "主界面")
+![用户管理](images/image-1.png "用户管理")
+![超级管理员-工具管理](images/image-2.png "超级管理员-工具管理")
+![超级管理员-工具管理-下发](images/image-3.png "超级管理员-工具管理-下发")
+![超级管理员-模型管理](images/image-4.png "超级管理员-模型管理")s
+![超级管理员-模型配置](images/image-5.png "超级管理员-模型配置")
+![工具创建](images/image-6.png "工具创建")
+![技能创建](images/image-7.png "技能创建")
+![工具调用展示](images/image-12.png "工具调用展示")
+![资料卡](images/image-9.png "资料卡")
+![APIKEY管理](images/image-10.png "APIKEY管理")
+![完整API对接文档](images/image-11.png "完整API对接文档")
 
 ## 开源协议
 
