@@ -37,6 +37,34 @@ import { useConfirmDialog } from './ui/confirm-dialog';
 
 type ViewMode = 'list' | 'create' | 'edit';
 
+// Built-in tools that aren't stored in the user_tools table but are always
+// bound to the LLM via `src/tools/registry.py`. Skill authors need to know
+// the names so they can reference them inside prompt_template, e.g.
+//   {{tool:get_current_time()}}
+// or instruct the LLM to call them in plain language.
+type BuiltinTool = {
+  name: string;
+  display_name: string;
+  description: string;
+  // Pre-built placeholder snippet copied to clipboard.
+  placeholder: string;
+};
+const BUILTIN_TOOLS: BuiltinTool[] = [
+  {
+    name: 'get_current_time',
+    display_name: '获取当前时间',
+    description: '返回服务端真实当前时间（默认 Asia/Shanghai，可选 IANA 时区）。涉及"今天/现在/星期几/N 天前后"等时间问题时调用，避免模型凭训练记忆乱猜日期。',
+    placeholder: '{{tool:get_current_time()}}',
+  },
+  {
+    name: 'render_chart',
+    display_name: '渲染可视化图表',
+    description: '把结构化数据渲染成柱状/折线/散点/饼/面积图（强校验，前端会自动出交互式图）。仅在用户明确要求"画图/可视化/趋势对比"等场景调用。',
+    placeholder: '{{tool:render_chart(type="bar", title="...", xKey="字段", series=[{"dataKey":"字段","name":"显示名"}], data=[{"字段":"值"}])}}',
+  },
+];
+const BUILTIN_TOOL_NAMES = BUILTIN_TOOLS.map((t) => t.name);
+
 interface SkillsManagerProps {
   api?: SkillsApi;
   toolsApi?: ToolsApi;
@@ -65,6 +93,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [invalidTools, setInvalidTools] = useState<string[]>([]);
   const [showAvailableTools, setShowAvailableTools] = useState(false);
+  const [showBuiltinTools, setShowBuiltinTools] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [formData, setFormData] = useState<Partial<UserSkill>>({
@@ -123,7 +152,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
       matches.push(match[1]);
     }
     const toolNames = Array.from(new Set(matches));
-    const availableToolNames = tools.map(t => t.name);
+    const availableToolNames = tools.map(t => t.name).concat(BUILTIN_TOOL_NAMES);
     const invalid = toolNames.filter(name => !availableToolNames.includes(name));
     setInvalidTools(invalid);
     setFormData(prev => ({ ...prev, required_tools: toolNames }));
@@ -305,13 +334,19 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
   };
 
   const copyToolPlaceholder = (toolName: string) => {
-    const tool = tools.find(t => t.name === toolName);
-    if (!tool) return;
-    const params = tool.input_schema.parameters
-      .filter(p => p.required)
-      .map(p => `${p.name}="{{input.${p.name}}}"`)
-      .join(', ');
-    const text = `{{tool:${toolName}(${params})}}`;
+    let text: string;
+    const builtin = BUILTIN_TOOLS.find(t => t.name === toolName);
+    if (builtin) {
+      text = builtin.placeholder;
+    } else {
+      const tool = tools.find(t => t.name === toolName);
+      if (!tool) return;
+      const params = tool.input_schema.parameters
+        .filter(p => p.required)
+        .map(p => `${p.name}="{{input.${p.name}}}"`)
+        .join(', ');
+      text = `{{tool:${toolName}(${params})}}`;
+    }
     if (window.isSecureContext && navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(text);
     } else {
@@ -330,11 +365,15 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
   };
 
   const getDependentToolsInfo = () => {
-    const dependentTools = (formData.required_tools || []).map(name => ({
-      name,
-      tool: tools.find(t => t.name === name),
-      isInvalid: invalidTools.includes(name),
-    }));
+    const dependentTools = (formData.required_tools || []).map(name => {
+      const builtin = BUILTIN_TOOLS.find(t => t.name === name);
+      return {
+        name,
+        tool: tools.find(t => t.name === name),
+        builtin,
+        isInvalid: invalidTools.includes(name),
+      };
+    });
     const hasApprovalTools = dependentTools.some(dt => dt.tool?.requires_approval);
     return { dependentTools, hasApprovalTools };
   };
@@ -748,6 +787,54 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
           </CardContent>
         </Card>
 
+        {/* Built-in (always-bound) tools — collapsed by default */}
+        <Card className="border-primary/20">
+          <CardHeader
+            className="cursor-pointer"
+            onClick={() => setShowBuiltinTools(!showBuiltinTools)}
+          >
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                内置工具（无需配置，所有技能可直接调用）
+              </CardTitle>
+              {showBuiltinTools ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+            </div>
+            <CardDescription>
+              这些工具由系统提供，<b>不会</b>出现在下方"可用工具"列表里，但 LLM 始终能看到。
+              在 prompt 模板里直接写工具名（或用占位符），技能就能调用它们。
+            </CardDescription>
+          </CardHeader>
+          {showBuiltinTools && (
+            <CardContent className="space-y-2">
+              {BUILTIN_TOOLS.map((bt) => (
+                <div
+                  key={bt.name}
+                  onClick={() => copyToolPlaceholder(bt.name)}
+                  className="p-3 bg-muted/40 hover:bg-accent rounded-lg cursor-pointer transition-colors flex items-start gap-2"
+                >
+                  <Copy className="w-4 h-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="font-medium">{bt.display_name}</span>
+                      <code className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                        {bt.name}
+                      </code>
+                      <Badge variant="outline" className="border-primary/40 text-primary">
+                        <Sparkles className="w-3 h-3 mr-1" /> 内置
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{bt.description}</p>
+                    <code className="block text-[11px] mt-1.5 text-muted-foreground/80 bg-background/60 border border-border/40 rounded px-2 py-1 break-words [overflow-wrap:anywhere]">
+                      {bt.placeholder}
+                    </code>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          )}
+        </Card>
+
         {/* Tool Dependencies */}
         <Card>
           <CardHeader>
@@ -756,7 +843,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
           <CardContent className="space-y-4">
             {formData.required_tools && formData.required_tools.length > 0 ? (
               <div className="space-y-3">
-                {getDependentToolsInfo().dependentTools.map(({ name, tool, isInvalid }) => (
+                {getDependentToolsInfo().dependentTools.map(({ name, tool, builtin, isInvalid }) => (
                   <div
                     key={name}
                     className={`p-4 rounded-lg border ${
@@ -764,7 +851,12 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold">{tool?.display_name || name}</span>
+                      <span className="font-semibold">{tool?.display_name || builtin?.display_name || name}</span>
+                      {builtin && (
+                        <Badge variant="outline" className="border-primary/40 text-primary">
+                          <Sparkles className="w-3 h-3 mr-1" /> 内置
+                        </Badge>
+                      )}
                       {tool?.requires_approval && (
                         <Badge variant="outline" className="border-chart-4/50 text-chart-4">
                           <Lock className="w-3 h-3 mr-1" /> 需要审批
@@ -776,7 +868,11 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                         </Badge>
                       )}
                     </div>
-                    {tool && <p className="text-sm text-muted-foreground">{tool.description}</p>}
+                    {(tool || builtin) && (
+                      <p className="text-sm text-muted-foreground">
+                        {tool?.description || builtin?.description}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>

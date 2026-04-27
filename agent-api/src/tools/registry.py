@@ -7,17 +7,19 @@ are loaded per-user in the graph nodes.
 from typing import List
 from langchain_core.tools import StructuredTool
 
+from .get_current_time import build_get_current_time_tool
 from .render_chart import build_render_chart_tool
 
 
 def get_all_tools() -> List[StructuredTool]:
     """Return all built-in tools as LangChain StructuredTools."""
     return [
+        build_get_current_time_tool(),
         build_render_chart_tool(),
     ]
 
 
 def get_tools_requiring_approval() -> List[str]:
     """Names of built-in tools that require human approval before execution."""
-    # render_chart is pure formatting, no side effects → no approval needed.
+    # All built-ins are read-only / pure formatting → no approval needed.
     return []
