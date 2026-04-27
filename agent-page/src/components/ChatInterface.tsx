@@ -236,12 +236,29 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
           />
         );
       }
+      // Inline code: allow breaking inside long unbreakable tokens (e.g.
+      // a JSON-ish string with no whitespace) so it can't punch through the
+      // message container.
+      const codeClass = inline
+        ? `${className || ''} break-all whitespace-pre-wrap`.trim()
+        : className;
       return (
-        <code className={className} {...props}>
+        <code className={codeClass} {...props}>
           {children}
         </code>
       );
     },
+    // Fenced code blocks render via <pre>; wrap long lines instead of
+    // showing a horizontal scrollbar so the content never escapes the bubble.
+    pre: ({ node, ...props }: any) => (
+      <pre
+        {...props}
+        className={`${props.className || ''} max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]`.trim()}
+      />
+    ),
+    p: ({ node, ...props }) => (
+      <p className="break-words [overflow-wrap:anywhere]" {...props} />
+    ),
   };
 
   useEffect(() => {
@@ -706,7 +723,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
     })();
 
     return (
-      <div key={stepIndex} className="relative pl-8 pb-3 last:pb-0">
+      <div key={stepIndex} className="relative pl-8 pb-3 last:pb-0 min-w-0">
         {/* vertical rail to next node */}
         {!isLast && (
           <div className="absolute left-[11px] top-6 bottom-0 w-px bg-border" />
@@ -717,7 +734,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
         </div>
 
         {step.type === 'thinking' && (
-          <div className="text-xs text-muted-foreground prose prose-xs dark:prose-invert max-w-none leading-relaxed pt-0.5">
+          <div className="text-xs text-muted-foreground prose prose-xs dark:prose-invert max-w-none leading-relaxed pt-0.5 min-w-0 break-words [overflow-wrap:anywhere]">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {toMarkdownString(step.content)}
             </ReactMarkdown>
@@ -732,7 +749,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
             {step.args && Object.keys(step.args).length > 0 && (
               <div className="space-y-1">
                 <div className="text-[11px] uppercase tracking-wider text-muted-foreground/80 font-medium">INPUT</div>
-                <pre className="text-[11px] font-mono bg-background/60 border border-border/40 rounded-md p-2 overflow-x-auto">
+                <pre className="text-[11px] font-mono bg-background/60 border border-border/40 rounded-md p-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full">
                   {JSON.stringify(step.args, null, 2)}
                 </pre>
               </div>
@@ -750,7 +767,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
             </div>
             <div className="space-y-1">
               <div className="text-[11px] uppercase tracking-wider text-muted-foreground/80 font-medium">OUTPUT</div>
-              <div className="text-[11px] font-mono bg-background/60 border border-border/40 rounded-md p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-48">
+              <div className="text-[11px] font-mono bg-background/60 border border-border/40 rounded-md p-2 overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-h-48 max-w-full">
                 {toMarkdownString(step.content)}
               </div>
             </div>
@@ -1021,13 +1038,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
         <div className="max-w-3xl mx-auto space-y-5 pt-6 pb-2">
           {/* Messages */}
           {messages.map((msg, index) => (
-            <div key={index} className="flex flex-col group">
+            <div key={index} className="flex flex-col group min-w-0">
               {msg.role === 'user' ? (
                 /* User — right-aligned bubble, no avatar, asymmetric corner */
                 <div className="flex justify-end">
-                  <div className="bg-muted text-foreground rounded-3xl rounded-br-lg max-w-[85%] sm:max-w-[80%] px-4 py-3 break-words">
+                  <div className="bg-muted text-foreground rounded-3xl rounded-br-lg max-w-[85%] sm:max-w-[80%] px-4 py-3 break-words [overflow-wrap:anywhere] min-w-0">
                     {msg.content && (
-                      <div className="prose prose-sm dark:prose-invert max-w-none">
+                      <div className="prose prose-sm dark:prose-invert max-w-none min-w-0 break-words [overflow-wrap:anywhere]">
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{toMarkdownString(msg.content)}</ReactMarkdown>
                       </div>
                     )}
@@ -1057,14 +1074,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
                 </div>
               ) : msg.role === 'assistant' ? (
                 /* Assistant — no avatar, no bubble, plain markdown on bg */
-                <div className="w-full">
+                <div className="w-full min-w-0">
                   {msg.steps && msg.steps.length > 0 && renderThinkingPanel(
                     msg.steps,
                     expandedSteps.has(index),
                     () => toggleSteps(index),
                   )}
                   {msg.content && (
-                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <div className="prose prose-sm dark:prose-invert max-w-none min-w-0 break-words [overflow-wrap:anywhere]">
                       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{toMarkdownString(msg.content)}</ReactMarkdown>
                     </div>
                   )}
@@ -1132,7 +1149,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
                           <span className="font-medium">{tool.display_name || tool.name}</span>
                         </div>
                         {tool.args && Object.keys(tool.args).length > 0 && (
-                          <pre className="mt-1.5 p-2 rounded bg-muted text-xs overflow-x-auto">
+                          <pre className="mt-1.5 p-2 rounded bg-muted text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full">
                             {JSON.stringify(tool.args, null, 2)}
                           </pre>
                         )}

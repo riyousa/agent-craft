@@ -54,6 +54,18 @@ def _doubao_extra_body(extra_config: dict, enable_reasoning: bool) -> Optional[d
     return body
 
 
+def _qwen_extra_body(extra_config: dict, enable_reasoning: bool) -> Optional[dict]:
+    """DashScope (通义千问) deep-thinking flag goes in extra_body.enable_thinking.
+
+    Qwen3 thinking models read `extra_body={"enable_thinking": true|false}`.
+    Caller can override via extra_config['extra_body'].
+    """
+    user_extra = (extra_config or {}).get("extra_body") or {}
+    body = {"enable_thinking": bool(enable_reasoning)}
+    body.update(user_extra)
+    return body
+
+
 def _passthrough_extra_body(extra_config: dict, enable_reasoning: bool) -> Optional[dict]:
     """Default: only forward whatever the admin put into extra_config.extra_body."""
     user_extra = (extra_config or {}).get("extra_body") or None
@@ -74,10 +86,11 @@ PROVIDERS: dict[str, ProviderSpec] = {
         key="qwen",
         display_name="通义千问 (DashScope)",
         default_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        description="阿里云百炼 / DashScope OpenAI 兼容端点（qwen-max、qwen-plus 等）",
-        supports_reasoning=False,
-        build_extra_body=_passthrough_extra_body,
+        description="阿里云百炼 / DashScope OpenAI 兼容端点（qwen-max、qwen-plus、qwen3 等）",
+        supports_reasoning=True,
+        build_extra_body=_qwen_extra_body,
         docs_url="https://help.aliyun.com/zh/model-studio/getting-started/",
+        notes="深度思考仅 Qwen3 系列等思考模型支持，开关通过 extra_body.enable_thinking 控制。",
     ),
     "glm": ProviderSpec(
         key="glm",
