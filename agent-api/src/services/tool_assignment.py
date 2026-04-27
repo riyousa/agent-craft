@@ -129,7 +129,17 @@ async def sync_required_tools_for_users(
     silently skipping it.
     """
     result = ToolSyncResult()
-    names = [n for n in (required_tool_names or []) if n]
+    raw_names = [n for n in (required_tool_names or []) if n]
+    if not raw_names:
+        return result
+
+    # Built-in tools (e.g. `get_current_time`, `render_chart`) are bound to the
+    # LLM directly from the in-process registry — they have no AdminTool row
+    # and don't need per-user provisioning. Strip them up-front so they don't
+    # show up as bogus "missing dependencies" in the assign response.
+    from src.tools.registry import get_builtin_tool_names
+    builtin_names = set(get_builtin_tool_names())
+    names = [n for n in raw_names if n not in builtin_names]
     if not names:
         return result
 
@@ -137,7 +147,8 @@ async def sync_required_tools_for_users(
     admin_tools = {t.name: t for t in tools_result.scalars().all()}
 
     api_logger.info(
-        f"[sync_required_tools] requested_names={names!r} "
+        f"[sync_required_tools] requested_names={raw_names!r} "
+        f"after_builtin_filter={names!r} "
         f"found_in_admin_tools={sorted(admin_tools.keys())!r}"
     )
 

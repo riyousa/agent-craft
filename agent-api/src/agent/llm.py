@@ -38,7 +38,11 @@ class OpenAICompatibleLLM(BaseChatModel):
 
     # Behavior
     temperature: float = 0.7
-    max_tokens: int = 2000
+    # `None` means "don't send max_tokens" → providers fall back to their
+    # native max output limit. Admins can pin a number via extra_config when
+    # they want to cap cost, but the default is uncapped so long replies and
+    # AI-generated skill JSON aren't silently truncated.
+    max_tokens: Optional[int] = None
     bound_tools: List[Any] = Field(default_factory=list)
     enable_reasoning: bool = False
     streaming: bool = True
@@ -63,7 +67,10 @@ class OpenAICompatibleLLM(BaseChatModel):
         defaults = cfg.extra_config or {}
         # Per-model defaults from extra_config (admin can override here).
         temperature = float(defaults.get("temperature", 0.7))
-        default_max_tokens = int(defaults.get("max_tokens", 2000))
+        # No hard default — None means "let the provider use its full output
+        # budget". Admin can still pin a number via extra_config.max_tokens.
+        raw_default_max = defaults.get("max_tokens")
+        default_max_tokens: Optional[int] = int(raw_default_max) if raw_default_max else None
         upstream = cfg.model
         if cfg.provider.transform_model_id:
             upstream = cfg.provider.transform_model_id(upstream)
@@ -150,9 +157,12 @@ class OpenAICompatibleLLM(BaseChatModel):
                 "model": self.upstream_model,
                 "messages": formatted_messages,
                 "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
                 "stream": self.streaming,
             }
+            # Only forward max_tokens when it's explicitly set; otherwise let
+            # the provider apply its own (typically much larger) default.
+            if self.max_tokens is not None:
+                api_params["max_tokens"] = self.max_tokens
 
             if self.extra_body:
                 api_params["extra_body"] = self.extra_body

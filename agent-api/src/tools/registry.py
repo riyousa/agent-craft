@@ -23,3 +23,13 @@ def get_tools_requiring_approval() -> List[str]:
     """Names of built-in tools that require human approval before execution."""
     # All built-ins are read-only / pure formatting → no approval needed.
     return []
+
+
+def get_builtin_tool_names() -> List[str]:
+    """Names of every built-in tool — always bound to the LLM, no admin row needed.
+
+    Used by skill-assignment code so a skill that depends on `get_current_time`
+    or `render_chart` doesn't get flagged "missing dependency" just because
+    those tools aren't stored in the `admin_tools` table.
+    """
+    return [t.name for t in get_all_tools()]

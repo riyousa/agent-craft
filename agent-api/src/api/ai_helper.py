@@ -196,8 +196,10 @@ async def parse_tool_config(
     try:
         api_logger.info(f"AI Helper: Parsing tool config from description: {request.description[:100]}...")
 
-        # Get LLM instance (non-streaming + larger token budget for full JSON output)
-        llm = await get_llm(streaming=False, max_tokens=8000, for_user=False)
+        # Non-streaming JSON helper. Don't cap max_tokens — long tool configs
+        # (especially with detailed input/output schemas) can otherwise be
+        # truncated mid-JSON and fail to parse on the frontend.
+        llm = await get_llm(streaming=False, for_user=False)
 
         # Create prompt
         user_prompt = f"""Parse this API description into a valid tool configuration:
@@ -473,9 +475,11 @@ async def parse_skill_config(
     try:
         api_logger.info(f"Skill Helper: Parsing skill from description: {request.description[:100]}...")
 
-        # Get LLM instance (non-streaming + larger token budget: skill configs with long
-        # prompt_templates easily exceed 2000 tokens and get truncated mid-JSON-string)
-        llm = await get_llm(streaming=False, max_tokens=8000, for_user=False)
+        # Non-streaming + uncapped tokens: skill prompt_templates can run long
+        # (multi-step workflows, embedded examples). Letting the provider use
+        # its full output budget avoids truncation that breaks JSON parse and
+        # prevents the user from saving the skill.
+        llm = await get_llm(streaming=False, for_user=False)
 
         # Format available tools for the prompt (include input/output schemas)
         tools_info_parts = []
