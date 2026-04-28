@@ -231,8 +231,8 @@ agent-page/src/mock/
 - [x] **Phase 1.3** 工具编辑器（chrome 已对齐；双栏 AI 助手布局延后）
 - [x] **Phase 1.4** 技能列表
 - [x] **Phase 1.5** 技能编辑器（chrome 已对齐）
-- [ ] **Phase 1.6** 文件管理
-- [ ] **Phase 1.7** API Key
+- [x] **Phase 1.6** 文件管理（FileThumb 已替换 emoji；PageHeader 包装延后）
+- [ ] **Phase 1.7** API Key（当前在 Dialog 内，独立页面延后）
 - [ ] **Phase 2.1** 用户管理
 - [ ] **Phase 2.2** 全局工具 / 技能
 - [ ] **Phase 2.3** 模型管理

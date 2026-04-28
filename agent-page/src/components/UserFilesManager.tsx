@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
 import { cn } from '../lib/utils';
+import { FileThumb } from './design';
 
 export const UserFilesManager: React.FC = () => {
   const { toast } = useToast();
@@ -321,9 +322,8 @@ export const UserFilesManager: React.FC = () => {
             <Card key={file.id} className="flex flex-col transition-all hover:shadow-md">
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-                    {getFileIcon(file.filename)}
-                  </div>
+                  <FileThumb type={file.filename} />
+
                   <div className="flex-1 min-w-0">
                     <CardTitle className="text-sm truncate">{file.filename}</CardTitle>
                     <CardDescription className="text-xs">
