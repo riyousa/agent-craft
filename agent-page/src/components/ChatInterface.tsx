@@ -64,6 +64,9 @@ const toMarkdownString = (v: unknown): string => {
 
 interface ChatInterfaceProps {
   userInfo: UserInfo;
+  /** Pre-load this thread on mount — used when navigating from the
+      history page. When unset, a fresh thread id is generated. */
+  initialThreadId?: string;
 }
 
 interface Step {
@@ -87,11 +90,13 @@ interface Message {
   files?: AttachedFile[];
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [threadId, setThreadId] = useState(`user_${userInfo.user_id}_${Date.now()}`);
+  const [threadId, setThreadId] = useState(
+    initialThreadId || `user_${userInfo.user_id}_${Date.now()}`,
+  );
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [approvalDetails, setApprovalDetails] = useState<any[]>([]);
   const [approvalLoading, setApprovalLoading] = useState(false);
@@ -336,6 +341,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
     const next = Math.min(ta.scrollHeight, TEXTAREA_MAX_HEIGHT);
     ta.style.height = `${next}px`;
   }, [input]);
+
+  // When a thread id is handed in (e.g. from the history page), load
+  // that thread's messages once on mount so the user lands inside the
+  // conversation rather than a blank chat with the wrong thread.
+  useEffect(() => {
+    if (!initialThreadId) return;
+    handleSelectConversation(initialThreadId);
+    // Intentionally one-shot — switching threads later happens via the
+    // composer drawer, not by remounting with a new prop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSelectConversation = async (newThreadId: string) => {
     setThreadId(newThreadId);

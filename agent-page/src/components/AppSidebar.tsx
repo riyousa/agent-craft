@@ -4,6 +4,7 @@
  */
 import {
   MessageSquare,
+  History,
   Wrench,
   Lightbulb,
   FolderOpen,
@@ -92,6 +93,12 @@ export function AppSidebar({ currentView, onNavigate }: AppSidebarProps) {
       icon: MessageSquare,
       label: '对话助手',
       view: 'chat',
+    },
+    {
+      id: 'history',
+      icon: History,
+      label: '对话历史',
+      view: 'history',
     },
     {
       id: 'tools',

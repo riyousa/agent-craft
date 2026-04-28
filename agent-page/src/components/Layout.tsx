@@ -33,6 +33,7 @@ export const Layout: React.FC<LayoutProps> = ({
             <Separator orientation="vertical" className="mr-1 h-4" />
             <h1 className="text-sm font-medium text-foreground tracking-tight truncate">
               {currentView === 'chat' && '对话助手'}
+              {currentView === 'history' && '对话历史'}
               {currentView === 'user-tools' && '我的工具'}
               {currentView === 'user-skills' && '我的技能'}
               {currentView === 'user-files' && '文件管理'}

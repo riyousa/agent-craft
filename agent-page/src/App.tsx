@@ -8,6 +8,7 @@ import { UserManagement } from './components/UserManagement';
 import { GlobalManagement } from './components/GlobalManagement';
 import { ObservabilityPanel } from './components/ObservabilityPanel';
 import { Layout } from './components/Layout';
+import { ConversationHistoryPage } from './pages/ConversationHistoryPage';
 import { Button } from './components/ui/button';
 import { Toaster } from './components/ui/toaster';
 import { chatApi, UserInfo } from './api/client';
@@ -19,12 +20,14 @@ import ApiDocs from './pages/ApiDocs';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
-type View = 'chat' | 'user-tools' | 'user-skills' | 'user-files' | 'user-management' | 'global-management' | 'observability';
+type View = 'chat' | 'history' | 'user-tools' | 'user-skills' | 'user-files' | 'user-management' | 'global-management' | 'observability';
 
 function MainApp() {
   const [view, setView] = useState<View>('chat');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Thread to load when navigating back to chat from the history page.
+  const [pendingThreadId, setPendingThreadId] = useState<string | null>(null);
   const { user } = useAuth();
 
   const userInfo: UserInfo = {
@@ -74,7 +77,21 @@ function MainApp() {
   return (
     <div className="h-screen w-screen overflow-hidden relative">
       <Layout currentView={view} onNavigate={handleNavigate}>
-        {view === 'chat' && <ChatInterface userInfo={userInfo} />}
+        {view === 'chat' && (
+          <ChatInterface userInfo={userInfo} initialThreadId={pendingThreadId || undefined} />
+        )}
+        {view === 'history' && (
+          <ConversationHistoryPage
+            onSelectConversation={(threadId) => {
+              setPendingThreadId(threadId);
+              setView('chat');
+            }}
+            onNewConversation={() => {
+              setPendingThreadId(null);
+              setView('chat');
+            }}
+          />
+        )}
         {view === 'user-tools' && <ToolsManager />}
         {view === 'user-skills' && <SkillsManager />}
         {view === 'user-files' && <UserFilesManager />}
