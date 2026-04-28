@@ -220,6 +220,10 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
       <PageHeader
         breadcrumb={['工作区', '对话历史']}
         subtitle={`共 ${filtered.length} 条`}
+        onCrumbClick={(i) => {
+          // 工作区 → jump back to the main chat view.
+          if (i === 0) onNewConversation();
+        }}
         actions={
           <Button
             variant="ghost"

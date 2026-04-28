@@ -841,6 +841,9 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
             : ['工作区', '技能', formData.name || '编辑']
         }
         subtitle={viewMode === 'create' ? '新建技能' : '编辑模式'}
+        onCrumbClick={(i) => {
+          if (i === 1) handleCancel();
+        }}
         actions={
           <>
             <Button variant="ghost" size="sm" onClick={handleCancel} className="h-7 px-2 text-[12px]">

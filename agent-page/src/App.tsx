@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { BrowserRouter as Router, Routes, Route, useSearchParams } from 'react-router-dom';
 import ChatInterface from './components/ChatInterface';
 import { ToolsManager } from './components/ToolsManager';
 import { SkillsManager } from './components/SkillsManager';
@@ -22,14 +22,35 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 type View = 'chat' | 'history' | 'user-tools' | 'user-skills' | 'user-files' | 'user-management' | 'global-management' | 'observability';
+const ALL_VIEWS: View[] = ['chat', 'history', 'user-tools', 'user-skills', 'user-files', 'user-management', 'global-management', 'observability'];
 
 function MainApp() {
-  const [view, setView] = useState<View>('chat');
+  // View lives in the URL (?view=...) so the browser back/forward
+  // buttons navigate between views rather than dropping the user
+  // back to /login. setSearchParams pushes a new history entry per
+  // navigation, which is what we want.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = useMemo<View>(() => {
+    const v = searchParams.get('view');
+    return (ALL_VIEWS as string[]).includes(v || '') ? (v as View) : 'chat';
+  }, [searchParams]);
+  const pendingThreadId = searchParams.get('thread');
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Thread to load when navigating back to chat from the history page.
-  const [pendingThreadId, setPendingThreadId] = useState<string | null>(null);
   const { user } = useAuth();
+
+  const setView = (next: View, opts?: { thread?: string | null }) => {
+    setSearchParams((prev) => {
+      const sp = new URLSearchParams(prev);
+      sp.set('view', next);
+      if (opts && 'thread' in opts) {
+        if (opts.thread) sp.set('thread', opts.thread);
+        else sp.delete('thread');
+      }
+      return sp;
+    });
+  };
 
   const userInfo: UserInfo = {
     user_id: user?.id || 1,
@@ -52,7 +73,10 @@ function MainApp() {
   }, []);
 
   const handleNavigate = (targetView: string) => {
-    setView(targetView as View);
+    // Switching to a different view drops any previously-pinned
+    // thread query so the chat page doesn't keep reloading the same
+    // thread when the user comes back via sidebar navigation.
+    setView(targetView as View, targetView === 'chat' ? undefined : { thread: null });
   };
 
   if (isLoading) {
@@ -80,24 +104,15 @@ function MainApp() {
       <Layout
         currentView={view}
         onNavigate={handleNavigate}
-        onSelectThread={(threadId) => {
-          setPendingThreadId(threadId);
-          setView('chat');
-        }}
+        onSelectThread={(threadId) => setView('chat', { thread: threadId })}
       >
         {view === 'chat' && (
           <ChatInterface userInfo={userInfo} initialThreadId={pendingThreadId || undefined} />
         )}
         {view === 'history' && (
           <ConversationHistoryPage
-            onSelectConversation={(threadId) => {
-              setPendingThreadId(threadId);
-              setView('chat');
-            }}
-            onNewConversation={() => {
-              setPendingThreadId(null);
-              setView('chat');
-            }}
+            onSelectConversation={(threadId) => setView('chat', { thread: threadId })}
+            onNewConversation={() => setView('chat', { thread: null })}
           />
         )}
         {view === 'user-tools' && <ToolsManager />}

@@ -1360,6 +1360,11 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
             : ['工作区', '工具', formData.name || '编辑']
         }
         subtitle={viewMode === 'create' ? '新建工具' : '编辑模式'}
+        onCrumbClick={(i) => {
+          // 工具 → 回到工具列表。「工作区」没有独立路由，作为分组标签
+          // 不响应点击。
+          if (i === 1) handleCancel();
+        }}
         actions={
           <>
             <Button variant="ghost" size="sm" onClick={handleCancel} className="h-7 px-2 text-[12px]">

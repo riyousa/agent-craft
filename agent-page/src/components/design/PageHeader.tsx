@@ -46,6 +46,11 @@ interface PageHeaderProps {
   subtitle?: React.ReactNode;
   /** Page-specific buttons that sit before the theme toggle. */
   actions?: React.ReactNode;
+  /** Click handler for non-last crumbs. The index is 0-based; the
+   *  last crumb (current page) is never clickable. Returning falsy
+   *  from the handler is fine — caller decides which indices route
+   *  somewhere meaningful and which are just labels. */
+  onCrumbClick?: (index: number) => void;
   className?: string;
 }
 
@@ -53,6 +58,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   breadcrumb,
   subtitle,
   actions,
+  onCrumbClick,
   className,
 }) => {
   useHideAppHeader();
@@ -71,24 +77,35 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
       <nav className="flex min-w-0 flex-1 items-center gap-2">
         {breadcrumb.map((crumb, i) => {
           const isLast = i === breadcrumb.length - 1;
+          const clickable = !isLast && !!onCrumbClick;
           // On narrow screens only the final crumb stays visible —
           // intermediate crumbs / chevrons hide via `hidden sm:flex`
           // so the breadcrumb chain doesn't wrap on phones.
+          if (isLast) {
+            return (
+              <React.Fragment key={i}>
+                <span className="min-w-0 truncate text-[12.5px] font-medium text-foreground">
+                  {crumb}
+                </span>
+              </React.Fragment>
+            );
+          }
           return (
             <React.Fragment key={i}>
-              <span
-                className={cn(
-                  'text-[12.5px]',
-                  isLast
-                    ? 'min-w-0 truncate font-medium text-foreground'
-                    : 'hidden sm:inline shrink-0 text-muted-foreground',
-                )}
-              >
-                {crumb}
-              </span>
-              {!isLast && (
-                <ChevronRight className="hidden sm:block h-3 w-3 shrink-0 text-muted-foreground/60" />
+              {clickable ? (
+                <button
+                  type="button"
+                  onClick={() => onCrumbClick && onCrumbClick(i)}
+                  className="hidden sm:inline shrink-0 cursor-pointer rounded text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {crumb}
+                </button>
+              ) : (
+                <span className="hidden sm:inline shrink-0 text-[12.5px] text-muted-foreground">
+                  {crumb}
+                </span>
               )}
+              <ChevronRight className="hidden sm:block h-3 w-3 shrink-0 text-muted-foreground/60" />
             </React.Fragment>
           );
         })}
