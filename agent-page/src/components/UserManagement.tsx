@@ -206,7 +206,7 @@ export const UserManagement: React.FC = () => {
         <div className="w-full px-7 pt-6 pb-12">
           <PageTitle
             title="用户管理"
-            description="管理可访问 Agent Craft 的用户、角色与所属团队。L3 超管可指派角色，编辑创建全局工具与技能，L2 可创建用户，L1 用户仅可发起对话。"
+            description="管理可访问 Agent Craft 的用户、角色与所属团队。L3 超管可指派角色，编辑创建全局工具与技能，L2 可创建用户，L1 用户仅可发起对话，修改自己的工具与技能。"
             actions={
               <Button size="sm" onClick={() => setShowCreateDialog(true)} className="gap-1.5">
                 <Plus className="h-3.5 w-3.5" />
