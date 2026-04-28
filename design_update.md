@@ -233,7 +233,7 @@ agent-page/src/mock/
 - [x] **Phase 1.5** 技能编辑器（920px 容器 + 元数据 header + 「预览对话」按钮）
 - [x] **Phase 1.6** 文件管理（FileThumb 已替换 emoji；PageHeader 包装延后）
 - [x] **Phase 1.7** API Key（独立页面 + 一次性 Key 回显）
-- [ ] **Phase 2.1** 用户管理
+- [x] **Phase 2.1** 用户管理
 - [ ] **Phase 2.2** 全局工具 / 技能
 - [ ] **Phase 2.3** 模型管理
 - [ ] **Phase 3** 登录页
