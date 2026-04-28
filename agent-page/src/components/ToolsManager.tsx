@@ -19,7 +19,6 @@ import {
   ChevronDown,
   ChevronRight,
   Server,
-  Upload,
   MoreHorizontal,
   Loader2,
 } from 'lucide-react';
@@ -746,20 +745,6 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
               description="工具是 Agent 可以调用的具体能力。HTTP 接口、SQL 查询、JS 脚本均可注册为工具，并支持参数校验、审批策略与权限控制。"
               actions={
                 <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      toast({
-                        title: '导入 OpenAPI 即将开放',
-                        description: '此入口尚未接通后端 OpenAPI 解析；先用「新建工具」或「导入 MCP 服务」。',
-                      })
-                    }
-                    className="gap-1.5"
-                  >
-                    <Upload className="h-3.5 w-3.5" />
-                    导入 OpenAPI
-                  </Button>
                   <Button variant="outline" size="sm" onClick={openMcpDrawer} className="gap-1.5">
                     <Server className="h-3.5 w-3.5" />
                     导入 MCP 服务
