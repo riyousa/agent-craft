@@ -74,13 +74,11 @@ async def rewrite_file_urls_for_model(
         return list(file_urls)
 
     provider_key = cfg.provider_key
-    if provider_key != "qwen":
+    if provider_key not in ("qwen", "doubao"):
         # Other providers either accept the local signed URL via egress
         # (rare) or ignore non-image attachments. Either way we don't
         # have a bridge for them yet — pass through.
         return list(file_urls)
-
-    from src.agent.llm_providers.qwen_uploader import upload_local_file
 
     out: List[str] = []
     for url in file_urls:
@@ -110,17 +108,30 @@ async def rewrite_file_urls_for_model(
                 )
                 out.append(url)
                 continue
-            oss_url = await upload_local_file(
-                api_key=cfg.api_key,
-                model_name=cfg.model,
-                file_id=user_file.id,
-                file_name=user_file.filename,
-                file_bytes=file_bytes,
-            )
-            out.append(oss_url)
+
+            if provider_key == "qwen":
+                from src.agent.llm_providers.qwen_uploader import upload_local_file as qwen_upload
+                bridged = await qwen_upload(
+                    api_key=cfg.api_key,
+                    model_name=cfg.model,
+                    file_id=user_file.id,
+                    file_name=user_file.filename,
+                    file_bytes=file_bytes,
+                )
+            else:  # doubao
+                from src.agent.llm_providers.doubao_uploader import upload_local_file as doubao_upload
+                bridged = await doubao_upload(
+                    api_key=cfg.api_key,
+                    base_url=cfg.base_url,
+                    model_name=cfg.model,
+                    file_id=user_file.id,
+                    file_name=user_file.filename,
+                    file_bytes=file_bytes,
+                )
+            out.append(bridged)
         except Exception as e:
             api_logger.error(
-                f"[file_bridge] qwen upload failed for file id {file_id}: {e}",
+                f"[file_bridge] {provider_key} upload failed for file id {file_id}: {e}",
                 exc_info=True,
             )
             # Fall back to the original URL — the request will still go out;

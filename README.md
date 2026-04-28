@@ -140,7 +140,10 @@ Agent Craft 是一个**可扩展的对话式 Agent 平台**：
 - 支持上传 / 下载 / 删除，工具调用可读写当前用户的文件目录，天然隔离。
 - **对话内附件**：聊天窗的附件按钮整合为一个 Paperclip 浮窗，提供两条入口——"上传本地文件"或"从文件管理选择"。线上选择面板带文件夹筛选 + 实时搜索 + 计数胶囊，已选文件去重。
 - **附件按模型能力门控**：当前模型 `supports_file_upload=false` 时附件按钮自动隐藏，避免选了不支持附件的模型才发现传不进去。
-- **跨 provider 文件桥接**：以 Qwen 为例，发送时后端会把本地 `/assets/<id>` URL 通过 DashScope 文件 API 推到临时 OSS（`oss://...`，48 小时有效）并自动附带 `X-DashScope-OssResourceResolve: enable` header，模型才能真正读到附件。同一文件在 30 分钟内复用上传结果，避免重复上传。
+- **跨 provider 文件桥接**：发送时后端把本地 `/assets/<id>` URL 翻译成各家 provider 能识别的远端资源：
+  - **Qwen**：通过 DashScope 上传到临时 OSS（`oss://...`，48 小时有效），自动附带 `X-DashScope-OssResourceResolve: enable` header；同一文件 30 分钟内复用上传结果。
+  - **Doubao（火山方舟）**：通过 Files API 上传，返回 `file-...` id，**默认 1 天有效**（最长 30 天，由后台 `_DEFAULT_EXPIRE_SECONDS` 控制），上传后会短暂轮询直到 `status=active` 再交付给模型；缓存 20 小时。
+  - 任意一步失败都会回退到原 URL 并打 warning，不阻断对话流。
 
 ### 前端控制台
 

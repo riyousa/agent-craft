@@ -291,16 +291,25 @@ bridged = await rewrite_file_urls_for_model(
 
 每个 provider 各自实现转换逻辑：
 
-| Provider | 实现                                            | 行为                                                                                                |
-| -------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `qwen`   | `src/agent/llm_providers/qwen_uploader.py`      | 把本地文件字节推到 DashScope 临时 OSS（`POST /api/v1/uploads?action=getPolicy` → 表单上传），返回 `oss://...`，48 小时有效。同 `(model, file_id)` 30 分钟内复用上传结果。 |
-| 其他     | 暂未实现，pass-through                            | URL 原样下发（如 provider 反正能直接读 https / 已经是 oss / 用户手贴的远端 URL）。                |
+| Provider | 实现                                              | 行为                                                                                                                                            |
+| -------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qwen`   | `src/agent/llm_providers/qwen_uploader.py`        | `GET /api/v1/uploads?action=getPolicy` 拿 OSS 策略 → 表单 POST 推到临时 OSS，返回 `oss://...`，48 小时有效。`(model, file_id)` 30 分钟内复用。 |
+| `doubao` | `src/agent/llm_providers/doubao_uploader.py`     | `POST /api/v3/files`（multipart，`purpose=user_data` + `expire_at=now+86400`）返回 `file-...` id，**默认 1 天有效**，上传后短暂轮询 `status=active`。`(model, file_id)` 20 小时内复用。 |
+| 其他     | 暂未实现，pass-through                              | URL 原样下发（如 provider 反正能直接读 https / 已经是 oss / 用户手贴的远端 URL）。                                                              |
+
+**`_build_human_message` 内容块识别**（`src/api/app.py`）：
+
+- URL 以 `file-` 开头 → Doubao Files API id → `image_url` 块
+- URL 以 `oss://` 开头 → Qwen DashScope 临时资源 → `image_url` 块
+- URL 以图片扩展名结尾（jpg/png/...）→ `image_url` 块
+- 其他一律降级为文本引用（`[附件: URL]`），让模型至少知道有附件存在
 
 **额外规则**：
 
 - 上传/转换失败一律回退原 URL 不阻断对话；在 `api.log` 里记录一行 warning + 完整 traceback。
 - Qwen 还需要 `X-DashScope-OssResourceResolve: enable` HTTP header，由 `ProviderSpec.build_extra_headers` 注入到 `OpenAICompatibleLLM.extra_headers`，对所有 Qwen 请求自动附带（无 `oss://` URL 时也无害）。
-- 新增一个支持文件的 provider：在 `file_bridge.py` 的 `rewrite_file_urls_for_model` 里加一个 `elif provider_key == "xxx"` 分支，按该 provider 的方式上传并返回它能读的 URL 即可。
+- Doubao 文件有效期可在 `doubao_uploader._DEFAULT_EXPIRE_SECONDS` 调（最长 30 天，方舟硬性上限）。
+- 新增一个支持文件的 provider：(1) 写一个 `<provider>_uploader.py`；(2) 在 `file_bridge.py` 的 provider 白名单里加该 key + 在循环里加分支调用上传函数；(3) 如果其返回 URL 不是 `oss://` / `file-` / 图片扩展名，需在 `_build_human_message` 加识别规则把它放进合适的内容块。
 
 ## 注意事项
 

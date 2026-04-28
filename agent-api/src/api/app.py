@@ -34,19 +34,31 @@ from langchain_core.messages import HumanMessage
 
 
 def _build_human_message(text: str, file_urls: list = None) -> HumanMessage:
-    """Build a HumanMessage, using multimodal content if files are present."""
+    """Build a HumanMessage, using multimodal content if files are present.
+
+    URL detection rules:
+      - `file-...`        → Doubao Files API id, emit `image_url` block
+                            (Doubao multimodal chat resolves the id internally).
+      - `oss://...`       → Qwen DashScope temp asset, emit `image_url`.
+      - any image extension (.jpg/.png/...) → `image_url`.
+      - everything else   → text reference, so the model at least sees
+                            that an attachment exists (download itself
+                            happens out-of-band).
+    """
     if not file_urls:
         return HumanMessage(content=text)
 
-    # Build OpenAI-compatible multimodal content array
-    content = [{"type": "text", "text": text}]
+    image_exts = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp')
+    content: list = [{"type": "text", "text": text}]
     for url in file_urls:
         url_str = str(url)
-        # Detect if image by extension
-        if any(url_str.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp']):
+        lower = url_str.lower()
+        is_image = lower.endswith(image_exts)
+        is_doubao_file = url_str.startswith("file-")
+        is_qwen_oss = lower.startswith("oss://")
+        if is_image or is_doubao_file or is_qwen_oss:
             content.append({"type": "image_url", "image_url": {"url": url_str}})
         else:
-            # For non-image files, include as text reference
             content.append({"type": "text", "text": f"\n[附件: {url_str}]"})
 
     return HumanMessage(content=content)

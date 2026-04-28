@@ -131,11 +131,15 @@ PROVIDERS: dict[str, ProviderSpec] = {
         key="doubao",
         display_name="火山引擎 / 豆包 (Doubao)",
         default_base_url="https://ark.cn-beijing.volces.com/api/v3",
-        description="火山引擎方舟（Doubao1.5-thinking-pro 等）",
+        description="火山引擎方舟（Doubao1.5-thinking-pro / VL / Vision 等）",
         supports_reasoning=True,
+        # 多模态 / VL 模型可通过 Files API 上传图片、视频、PDF；本平台默认
+        # 1 天有效期。具体某个模型是否真支持由 extra_config.supports_file_upload
+        # 覆盖（纯文本模型如 Doubao1.5-thinking-pro 应在配置里手动关闭）。
+        supports_file_upload=True,
         build_extra_body=_doubao_extra_body,
         docs_url="https://www.volcengine.com/docs/82379",
-        notes="深度思考模型推荐使用 Doubao1.5-thinking-pro。",
+        notes="深度思考推荐 Doubao1.5-thinking-pro；多模态需选 VL / Vision 类模型，文件附件通过 Files API 上传，默认 1 天有效。",
     ),
     "gemini": ProviderSpec(
         key="gemini",
