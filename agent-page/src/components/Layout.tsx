@@ -13,12 +13,16 @@ interface LayoutProps {
   children: React.ReactNode;
   currentView: string;
   onNavigate: (view: string) => void;
+  /** Forwarded to the sidebar's "最近对话" rows so clicking one loads
+   *  that thread directly into chat instead of routing via /history. */
+  onSelectThread?: (threadId: string) => void;
 }
 
 export const Layout: React.FC<LayoutProps> = ({
   children,
   currentView,
   onNavigate,
+  onSelectThread,
 }) => {
   // Pages that render their own <PageHeader/> (v3 design migration)
   // suppress this default header so we don't end up with two stacked
@@ -26,7 +30,11 @@ export const Layout: React.FC<LayoutProps> = ({
   const { hidden: appHeaderHidden } = useAppHeaderState();
   return (
     <SidebarProvider className="!min-h-0 h-full">
-      <AppSidebar currentView={currentView} onNavigate={onNavigate} />
+      <AppSidebar
+        currentView={currentView}
+        onNavigate={onNavigate}
+        onSelectThread={onSelectThread}
+      />
       <SidebarInset className="min-h-0">
         {!appHeaderHidden && (
         <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4 bg-background">

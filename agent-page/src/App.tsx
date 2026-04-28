@@ -77,7 +77,14 @@ function MainApp() {
 
   return (
     <div className="h-screen w-screen overflow-hidden relative">
-      <Layout currentView={view} onNavigate={handleNavigate}>
+      <Layout
+        currentView={view}
+        onNavigate={handleNavigate}
+        onSelectThread={(threadId) => {
+          setPendingThreadId(threadId);
+          setView('chat');
+        }}
+      >
         {view === 'chat' && (
           <ChatInterface userInfo={userInfo} initialThreadId={pendingThreadId || undefined} />
         )}

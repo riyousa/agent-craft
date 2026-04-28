@@ -57,6 +57,20 @@
 
 ---
 
+## Phase 0.5 · 侧边栏对齐（独立交付）
+
+设计稿的 sidebar 是整个 chrome 的支柱，每页都依赖它。先单独做掉再继续业务页：
+
+- [x] **品牌行**：替换 "智能助手平台 · Agent Craft" 双行为「Logo (22px) + Agent Craft + v0.4.2 (mono)」三件套；保留 SidebarTrigger 折叠按钮放在右端。
+- [x] **快速操作**：sidebar header 下方加两个 pill：
+  - 「+ 新建对话」outline 风（点击 → `onNavigate('chat')` + reset thread + ⌘N hint）
+  - 「⌘K 搜索…」ghost 风（暂 toast「搜索即将开放」，待 phase 4 接 backend 全文搜索）
+- [x] **工作区分组**：对话 / 对话历史 / 工具 / 技能 / 文件 / API Key（API Key 从用户菜单下拉移到这里），每项右侧带数字 badge 或 ⌘ 快捷键提示。
+- [x] **管理分组**（admin only）：用户管理 / 全局工具 / 全局技能 / 模型管理 / 可观测面板；分组标题带 `SUPER ADMIN` outline 徽标。L2 admin 只看到用户管理那一项；L3 super admin 看到全部。
+- [x] **最近对话分组**：调 `chatApi.listConversations(1, 5)` 拿最近 5 条，每项一行：标题 + 相对时间。点击 → 跳到 `/history` 触发选中或直接加载 thread。"全部"链接在分组标题右侧。
+- [x] **用户卡片**：保持现有 dropdown 行为，简化为 30px 头像 + 姓名 + L1/L3 chip + 角色文案 + 设置图标。
+- [x] **激活态**：左侧 2.5px primary 强调条 + bg-accent + 字色加深；hover 用 accent/40。
+
 ## Phase 1 · 用户侧高频页
 
 每条任务独立 commit；与现有页面并存（双写期），通过路由切换或 feature flag 决定显示哪份。
@@ -211,6 +225,7 @@ agent-page/src/mock/
 ## 检查清单（每阶段完成时打勾）
 
 - [x] **Phase 0** 基线
+- [x] **Phase 0.5** 侧边栏对齐
 - [x] **Phase 1.1** 对话历史
 - [ ] **Phase 1.2** 工具列表
 - [ ] **Phase 1.3** 工具编辑器
