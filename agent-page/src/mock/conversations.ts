@@ -12,6 +12,11 @@ export interface ConversationStats {
   is_archived: boolean;
   tokens_total: number;
   tools_called: number;
+  /** Mock model attribution — design wants a model column per row but
+   *  the backend doesn't track which model handled each conversation.
+   *  Picked deterministically from a small allowlist so the same
+   *  thread always shows the same model. */
+  model_label: string;
 }
 
 // Tiny deterministic hash so two reloads see the same value.
@@ -23,6 +28,14 @@ function hash(s: string): number {
   }
   return h >>> 0;
 }
+
+const MODEL_POOL = [
+  'Claude Sonnet 4.5',
+  'Claude Haiku 4.5',
+  'GPT-4o',
+  'Doubao 1.5 Pro',
+  'Qwen-Max',
+];
 
 export function statsFor(c: Pick<Conversation, 'thread_id' | 'message_count'>): ConversationStats {
   const seed = hash(c.thread_id || '');
@@ -36,6 +49,7 @@ export function statsFor(c: Pick<Conversation, 'thread_id' | 'message_count'>): 
     tokens_total,
     // Roughly ~1 tool call per 3 messages, capped.
     tools_called: Math.min(Math.floor(msgs / 3) + (seed % 4), 12),
+    model_label: MODEL_POOL[seed % MODEL_POOL.length],
   };
 }
 
@@ -44,3 +58,5 @@ export function formatTokens(n: number): string {
   if (n < 1_000_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
   return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
 }
+
+export const MOCK_MODEL_OPTIONS = ['全部模型', ...MODEL_POOL];

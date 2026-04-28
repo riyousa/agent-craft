@@ -6,11 +6,12 @@
  * chat composer for quick switching; this page is for browsing,
  * filtering, and bulk operations.
  *
+ * Visual reference: design bundle (PSKRgbxCcC9dV9GvkEezKw),
+ * `agent-craft/project/screens-user.jsx:33-124` ScreenHistory.
+ *
  * Mock-backed fields (see design_update.md Phase 4):
- *   - is_starred, is_archived, tokens_total, tools_called
+ *   - is_starred, is_archived, tokens_total, tools_called, model_label
  *     → from mock/conversations.ts; replace with API when backend lands.
- *   - model — the server doesn't expose the model id per conversation
- *     yet, so we hide that column for now (don't fabricate it).
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -22,6 +23,8 @@ import {
   MoreHorizontal,
   AlertTriangle,
   Loader2,
+  SlidersHorizontal,
+  Download,
 } from 'lucide-react';
 import { chatApi, ConversationListItem } from '../api/client';
 import { useToast } from '../hooks/use-toast';
@@ -51,13 +54,14 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import {
+  PageHeader,
   PageTitle,
   Toolbar,
   Pill,
   EmptyState,
 } from '../components/design';
 import { cn } from '../lib/utils';
-import { statsFor, formatTokens } from '../mock/conversations';
+import { statsFor, formatTokens, MOCK_MODEL_OPTIONS } from '../mock/conversations';
 
 interface ConversationHistoryPageProps {
   /** Click on a row to navigate back to chat with that thread loaded. */
@@ -71,12 +75,6 @@ const TIME_RANGES = [
   { value: '1d', label: '今天' },
   { value: '7d', label: '7 天内' },
   { value: '30d', label: '30 天内' },
-] as const;
-
-const STAR_FILTERS = [
-  { value: 'all', label: '全部' },
-  { value: 'starred', label: '已收藏' },
-  { value: 'archived', label: '已归档' },
 ] as const;
 
 function parseServerTime(s: string | null | undefined): number {
@@ -112,7 +110,7 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [timeRange, setTimeRange] = useState<typeof TIME_RANGES[number]['value']>('all');
-  const [starFilter, setStarFilter] = useState<typeof STAR_FILTERS[number]['value']>('all');
+  const [modelFilter, setModelFilter] = useState<string>('全部模型');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -142,8 +140,6 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sort + filter + search live entirely client-side. The list endpoint
-  // pages by 30; "load more" appends until `has_more` is false.
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const cutoff =
@@ -163,8 +159,7 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
           if (!hay.includes(q)) return false;
         }
         if (cutoff && parseServerTime(c.updated_at || c.created_at) < cutoff) return false;
-        if (starFilter === 'starred' && !c._stats.is_starred) return false;
-        if (starFilter === 'archived' && !c._stats.is_archived) return false;
+        if (modelFilter !== '全部模型' && c._stats.model_label !== modelFilter) return false;
         return true;
       })
       .sort(
@@ -172,7 +167,7 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
           parseServerTime(b.updated_at || b.created_at) -
           parseServerTime(a.updated_at || a.created_at),
       );
-  }, [conversations, searchQuery, timeRange, starFilter]);
+  }, [conversations, searchQuery, timeRange, modelFilter]);
 
   const handleDelete = (c: ConversationListItem) => {
     showConfirm({
@@ -197,29 +192,49 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
     });
   };
 
-  // Star/archive rely on backend fields that don't exist yet — Phase 4.
-  // Until then, the actions are visible but call out the limitation.
-  const handleStarToggle = () => {
-    toast({
-      title: '收藏功能即将开放',
-      description: '后端尚未支持持久化收藏标记；当前的 ☆ 仅用于演示。',
-    });
-  };
+  // Star / archive / advanced filter / export rely on backend fields or
+  // routes that don't exist yet — Phase 4. Toast them so the affordance
+  // stays in the UI without lying about persistence.
+  const notImpl = (title: string, description: string) =>
+    () => toast({ title, description });
 
-  const handleArchive = () => {
-    toast({
-      title: '归档功能即将开放',
-      description: '后端尚未支持归档；先用搜索 + 删除替代。',
-    });
-  };
+  const handleStarToggle = notImpl(
+    '收藏功能即将开放',
+    '后端尚未支持持久化收藏标记；当前的 ☆ 仅用于演示。',
+  );
+  const handleArchive = notImpl(
+    '归档功能即将开放',
+    '后端尚未支持归档；先用搜索 + 删除替代。',
+  );
+  const handleAdvancedFilter = notImpl(
+    '高级筛选即将开放',
+    '正在准备按工具调用、Token 区间、状态码等多维度筛选。',
+  );
+  const handleExport = notImpl(
+    '导出即将开放',
+    '后端尚未提供批量导出接口。',
+  );
 
   return (
     <div className="flex h-full flex-col bg-background">
+      <PageHeader
+        breadcrumb={['工作区', '对话历史']}
+        subtitle={`共 ${filtered.length} 条`}
+        actions={
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleExport}
+            className="h-7 gap-1.5 px-2 text-[12px]"
+          >
+            <Download className="h-3.5 w-3.5" />
+            导出
+          </Button>
+        }
+      />
+
       <div className="flex-1 overflow-y-auto">
-        {/* Full-bleed content area — fills whatever the Layout pane gives
-            us. Padding alone sets the page gutters; no max-width cap so
-            the table runs from the sidebar edge to the right edge. */}
-        <div className="w-full px-6 pt-6 pb-12">
+        <div className="w-full px-7 pt-6 pb-12">
           <PageTitle
             title="对话历史"
             description="查看、检索、归档你与 Agent 的所有会话。删除对话不会撤销已执行的工具操作。"
@@ -248,10 +263,22 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索标题、消息内容…"
+                placeholder="搜索标题、消息内容、工具名…"
                 className="h-8 pl-8 text-[12.5px]"
               />
             </div>
+            <Select value={modelFilter} onValueChange={setModelFilter}>
+              <SelectTrigger className="h-8 w-[130px] text-[12.5px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MOCK_MODEL_OPTIONS.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={timeRange} onValueChange={(v) => setTimeRange(v as any)}>
               <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
                 <SelectValue />
@@ -264,21 +291,15 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                 ))}
               </SelectContent>
             </Select>
-            <Select value={starFilter} onValueChange={(v) => setStarFilter(v as any)}>
-              <SelectTrigger className="h-8 w-[100px] text-[12.5px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STAR_FILTERS.map((r) => (
-                  <SelectItem key={r.value} value={r.value}>
-                    {r.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="ml-auto text-[11.5px] text-muted-foreground">
-              共 {filtered.length} 条
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAdvancedFilter}
+              className="h-8 gap-1.5 px-3 text-[12.5px]"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              筛选
+            </Button>
           </Toolbar>
 
           {loading ? (
@@ -288,14 +309,14 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
             </div>
           ) : filtered.length === 0 ? (
             <EmptyState
-              title={searchQuery || timeRange !== 'all' || starFilter !== 'all' ? '没有匹配的对话' : '暂无对话历史'}
+              title={searchQuery || timeRange !== 'all' || modelFilter !== '全部模型' ? '没有匹配的对话' : '暂无对话历史'}
               description={
-                searchQuery || timeRange !== 'all' || starFilter !== 'all'
+                searchQuery || timeRange !== 'all' || modelFilter !== '全部模型'
                   ? '调整筛选条件再试一次。'
                   : '在对话页面发送一条消息即可开始。'
               }
               action={
-                searchQuery || timeRange !== 'all' || starFilter !== 'all' ? null : (
+                searchQuery || timeRange !== 'all' || modelFilter !== '全部模型' ? null : (
                   <Button size="sm" onClick={onNewConversation} className="gap-1.5">
                     <Plus className="h-3.5 w-3.5" />
                     新对话
@@ -305,24 +326,21 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
             />
           ) : (
             <div className="rounded-lg border border-border bg-card overflow-hidden">
-              {/* Fixed layout so cell widths come from <colgroup>, not from
-                  the longest content. The "会话" column is the only `auto`
-                  column — it absorbs all extra width on wide screens and
-                  truncates on narrow ones, while the metric columns stay
-                  pinned to readable widths. */}
               <Table className="table-fixed">
                 <colgroup>
-                  <col className="w-10" />
+                  <col className="w-9" />
                   <col />
+                  <col className="w-[150px]" />
+                  <col className="w-[140px]" />
+                  <col className="w-[88px]" />
                   <col className="w-[120px]" />
-                  <col className="w-[80px]" />
-                  <col className="w-[110px]" />
                   <col className="w-10" />
                 </colgroup>
                 <TableHeader>
                   <TableRow className="border-b-border bg-muted/40 hover:bg-muted/40">
                     <TableHead className="h-9 px-3"></TableHead>
                     <TableHead className="h-9 px-3">会话</TableHead>
+                    <TableHead className="h-9 px-3">模型</TableHead>
                     <TableHead className="h-9 px-3">工具 / 消息</TableHead>
                     <TableHead className="h-9 px-3 text-right">TOKENS</TableHead>
                     <TableHead className="h-9 px-3">更新于</TableHead>
@@ -376,8 +394,11 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                           )}
                         </div>
                       </TableCell>
+                      <TableCell className="px-3 py-1.5">
+                        <Pill tone="outline">{c._stats.model_label}</Pill>
+                      </TableCell>
                       <TableCell className="px-3 py-1.5 font-mono text-[12px] text-muted-foreground whitespace-nowrap">
-                        {c._stats.tools_called}·{c.message_count}
+                        {c._stats.tools_called} 工具 · {c.message_count} 条
                       </TableCell>
                       <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
                         {formatTokens(c._stats.tokens_total)}

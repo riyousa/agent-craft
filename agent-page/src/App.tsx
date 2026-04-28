@@ -14,6 +14,7 @@ import { Toaster } from './components/ui/toaster';
 import { chatApi, UserInfo } from './api/client';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { PageHeaderProvider } from './contexts/PageHeaderContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ApiDocs from './pages/ApiDocs';
@@ -107,6 +108,7 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider>
+        <PageHeaderProvider>
         <AuthProvider>
           <Router>
             <Routes>
@@ -125,6 +127,7 @@ function App() {
             <Toaster />
           </Router>
         </AuthProvider>
+        </PageHeaderProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );

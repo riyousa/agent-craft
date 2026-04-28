@@ -9,6 +9,7 @@
 export { Pill } from './Pill';
 export type { PillTone } from './Pill';
 export { FileThumb } from './FileThumb';
+export { PageHeader } from './PageHeader';
 export { PageTitle } from './PageTitle';
 export { Toolbar } from './Toolbar';
 export { StatCard } from './StatCard';

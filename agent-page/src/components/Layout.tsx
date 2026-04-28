@@ -7,6 +7,7 @@ import { SidebarProvider, SidebarInset, SidebarTrigger } from './ui/sidebar';
 import { Separator } from './ui/separator';
 import { AppSidebar } from './AppSidebar';
 import { ThemeSwitcher } from './ThemeSwitcher';
+import { useAppHeaderState } from '../contexts/PageHeaderContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -19,14 +20,15 @@ export const Layout: React.FC<LayoutProps> = ({
   currentView,
   onNavigate,
 }) => {
+  // Pages that render their own <PageHeader/> (v3 design migration)
+  // suppress this default header so we don't end up with two stacked
+  // top bars. Pages still on the legacy chrome see this as before.
+  const { hidden: appHeaderHidden } = useAppHeaderState();
   return (
     <SidebarProvider className="!min-h-0 h-full">
       <AppSidebar currentView={currentView} onNavigate={onNavigate} />
       <SidebarInset className="min-h-0">
-        {/* 48px topbar — matches v3 design system (was 64px). The
-            page-level breadcrumb / actions are rendered by each page
-            via <PageHeader/> from components/design when applicable;
-            this app-level topbar stays minimal. */}
+        {!appHeaderHidden && (
         <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4 bg-background">
           <div className="flex items-center gap-2 min-w-0">
             <SidebarTrigger className="-ml-1" />
@@ -46,6 +48,7 @@ export const Layout: React.FC<LayoutProps> = ({
             <ThemeSwitcher />
           </div>
         </header>
+        )}
         <div className="flex-1 overflow-y-auto min-h-0">
           {children}
         </div>
