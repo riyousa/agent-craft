@@ -26,7 +26,6 @@ import {
   Search,
   MoreHorizontal,
   CheckCircle2,
-  X,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -687,7 +686,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
 
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3.5">
         <div className="rounded-lg border border-border bg-background px-3 py-2.5 text-[12.5px] leading-relaxed text-foreground">
-          描述你想让 Agent 完成的<strong>业务流程</strong>，我会一次性生成<strong>系统提示 / 工具依赖 / 工作流模板 / 启动建议</strong>。可以直接给场景，也可以从已有工具组合开始。
+          描述你想让 Agent 完成的<strong>业务流程</strong>，我会一次性生成<strong>系统提示 / 工具依赖 / 工作流模板</strong>。可以直接给场景，也可以从已有工具组合开始。
         </div>
 
         <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
@@ -757,11 +756,12 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                       '如果用户最近 30 天内已经发起过 ≥ 3 次退款，无论金额多少都走审批。',
                   },
                   {
-                    label: '补全启动建议',
-                    sub: 'AI 推荐 4 条贴合本技能的开场问题',
+                    label: '改写错误处理',
+                    sub: 'AI 调整异常分支与回滚逻辑',
                     seed:
-                      '请基于当前技能的功能（订单退款 + 库存查询 + 飞书通知），' +
-                      '推荐 4 条贴近运营同学日常工作的开场问题，每条不超过 30 字。',
+                      '当前流程没有处理「订单不存在」「ERP 接口超时」两种异常。' +
+                      '请补充：调用 lookup_orders 失败时，先用 search_kb 查 FAQ 再回退给用户提示；' +
+                      '退款接口超时时不要重试，记录到审计并提醒主管手动处理。',
                   },
                 ]
           ).map((s, i) => (
@@ -1287,37 +1287,6 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
             </div>
           </CardContent>
         </Card>
-
-        {/* Starter prompts — 启动建议 per design spec.
-            Mock-only display (no persistence yet); shows up to four
-            example questions to seed the user when chatting with this
-            skill. Phase 4 backend gap registered. */}
-        <H2>启动建议</H2>
-        <p className="-mt-2 mb-4 text-[11.5px] text-muted-foreground">
-          这些示例问题会出现在对话页的「快捷开场」区，帮助用户快速触发本技能。
-        </p>
-        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
-          {[
-            '查一下订单 ord_8821 的退款状态',
-            '今天有多少订单状态是异常的？',
-            '把这个订单退款 200 元，原因是商品质量问题',
-            '导出本周所有取消订单到表格',
-          ].map((s, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-[12.5px] text-foreground"
-            >
-              <span className="w-4 shrink-0 font-mono text-[10px] text-muted-foreground">
-                {String(i + 1).padStart(2, '0')}
-              </span>
-              <span className="flex-1 truncate">{s}</span>
-              <X className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-            </div>
-          ))}
-        </div>
-        <p className="mt-2 text-[11px] text-muted-foreground/70">
-          启动建议存储能力即将开放，目前仅作展示。
-        </p>
 
         {/* Advanced Configuration */}
         <Card>
