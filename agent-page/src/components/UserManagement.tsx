@@ -3,7 +3,7 @@ import { adminUserApi, ManagedUser } from '../api/client';
 import {
   Users, Plus, Edit2, Trash2, KeyRound, Search, Tag,
   Shield, ShieldCheck, User as UserIcon, Ban, CheckCircle, ArrowUpDown,
-  MoreHorizontal, Upload, Loader2,
+  MoreHorizontal, Loader2,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -206,28 +206,12 @@ export const UserManagement: React.FC = () => {
         <div className="w-full px-7 pt-6 pb-12">
           <PageTitle
             title="用户管理"
-            description="管理可访问 Agent Craft 的用户、角色与所属团队。L3 超管可指派角色，L2 编辑可创建工具与技能，L1 用户仅可发起对话。"
+            description="管理可访问 Agent Craft 的用户、角色与所属团队。L3 超管可指派角色，编辑创建全局工具与技能，L2 可创建用户，L1 用户仅可发起对话。"
             actions={
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    toast({
-                      title: '批量导入即将开放',
-                      description: '此入口尚未接通；当前先用「创建用户」手动添加。',
-                    })
-                  }
-                  className="gap-1.5"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  批量导入
-                </Button>
-                <Button size="sm" onClick={() => setShowCreateDialog(true)} className="gap-1.5">
-                  <Plus className="h-3.5 w-3.5" />
-                  创建用户
-                </Button>
-              </>
+              <Button size="sm" onClick={() => setShowCreateDialog(true)} className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                创建用户
+              </Button>
             }
           />
 
