@@ -92,8 +92,20 @@ export const UserFilesManager: React.FC = () => {
           toast({ variant: "success", title: "删除成功" });
           loadFiles(selectedFileType);
           loadWorkspaceInfo();
-        } catch {
-          toast({ variant: "destructive", title: "删除失败" });
+        } catch (err: any) {
+          // Surface the real backend reason instead of swallowing it —
+          // typically file-system permission errors on the server side
+          // or 404 if the row was already soft-deleted in another tab.
+          const detail =
+            err?.response?.data?.detail ||
+            err?.message ||
+            '请稍后再试';
+          console.error('[UserFiles] delete failed:', err);
+          toast({
+            variant: 'destructive',
+            title: '删除失败',
+            description: detail,
+          });
         }
       },
     });
@@ -381,13 +393,16 @@ export const UserFilesManager: React.FC = () => {
           ) : (
             <div className="rounded-lg border border-border bg-card overflow-hidden">
               <Table className="table-fixed min-w-[760px]">
+                {/* Percentage widths so the file-name column scales
+                    proportionally instead of devouring all the slack
+                    space on wide displays. Sum = 100. */}
                 <colgroup>
-                  <col />
-                  <col className="w-[80px]" />
-                  <col className="w-[100px]" />
-                  <col className="w-[100px]" />
-                  <col className="w-[120px]" />
-                  <col className="w-[60px]" />
+                  <col className="w-[50%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[6%]" />
                 </colgroup>
                 <TableHeader>
                   <TableRow className="border-b-border bg-muted/40 hover:bg-muted/40">
