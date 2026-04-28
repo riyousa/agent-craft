@@ -216,10 +216,10 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex-1 overflow-y-auto">
-        {/* Stretch to fill the main pane — only cap on ultra-wide displays
-            so the table doesn't become too sparse. Padding sits on the
-            inner div so the page edges look consistent. */}
-        <div className="mx-auto w-full max-w-[1480px] px-6 pt-6 pb-12">
+        {/* Full-bleed content area — fills whatever the Layout pane gives
+            us. Padding alone sets the page gutters; no max-width cap so
+            the table runs from the sidebar edge to the right edge. */}
+        <div className="w-full px-6 pt-6 pb-12">
           <PageTitle
             title="对话历史"
             description="查看、检索、归档你与 Agent 的所有会话。删除对话不会撤销已执行的工具操作。"
