@@ -902,12 +902,12 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                             <Pill tone="outline">{sourceLabel}</Pill>
                           </TableCell>
                           <TableCell className="px-3 py-1.5">
+                            {/* Status column shows just 启用 / 停用 — the
+                                需审批 badge already lives next to the
+                                name on the title cell, no need to
+                                duplicate it here. */}
                             {t.enabled ? (
-                              t.requires_approval ? (
-                                <Pill tone="warning" dot>需审批</Pill>
-                              ) : (
-                                <Pill tone="success" dot>已启用</Pill>
-                              )
+                              <Pill tone="success" dot>已启用</Pill>
                             ) : (
                               <Pill tone="neutral" dot>已停用</Pill>
                             )}

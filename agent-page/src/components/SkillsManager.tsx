@@ -586,12 +586,12 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                             {(s.required_tools || []).length}
                           </TableCell>
                           <TableCell className="px-3 py-1.5">
+                            {/* Status column shows just 启用 / 停用 — the
+                                需审批 badge already lives next to the
+                                name on the title cell, no need to
+                                duplicate it here. */}
                             {s.enabled ? (
-                              s.requires_approval ? (
-                                <Pill tone="warning" dot>需审批</Pill>
-                              ) : (
-                                <Pill tone="success" dot>已启用</Pill>
-                              )
+                              <Pill tone="success" dot>已启用</Pill>
                             ) : (
                               <Pill tone="neutral" dot>已停用</Pill>
                             )}
