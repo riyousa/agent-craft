@@ -227,7 +227,7 @@ agent-page/src/mock/
 - [x] **Phase 0** 基线
 - [x] **Phase 0.5** 侧边栏对齐
 - [x] **Phase 1.1** 对话历史
-- [ ] **Phase 1.2** 工具列表
+- [x] **Phase 1.2** 工具列表
 - [ ] **Phase 1.3** 工具编辑器
 - [ ] **Phase 1.4** 技能列表
 - [ ] **Phase 1.5** 技能编辑器

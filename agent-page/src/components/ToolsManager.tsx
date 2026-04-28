@@ -18,6 +18,9 @@ import {
   XCircle,
   ChevronDown,
   Server,
+  Upload,
+  MoreHorizontal,
+  Loader2,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -33,8 +36,17 @@ import {
   Drawer, DrawerClose, DrawerContent, DrawerDescription,
   DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger,
 } from './ui/drawer';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from './ui/table';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState } from './design';
+import { metricsFor, formatCalls } from '../mock/tool_metrics';
 
 type ViewMode = 'list' | 'create' | 'edit';
 
@@ -51,6 +63,12 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
   const [tools, setTools] = useState<UserTool[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState<'time-desc' | 'time-asc' | 'name'>('time-desc');
+  // List-view filter state — purely client-side until the backend
+  // exposes server-side filtering hooks (Phase 4).
+  const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'http' | 'mcp'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'user_created' | 'admin_assigned'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled' | 'approval'>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedTool, setSelectedTool] = useState<UserTool | null>(null);
   const [isTesting, setIsTesting] = useState(false);
@@ -673,144 +691,288 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
 
   // List view
   if (viewMode === 'list') {
-    return (
-      <div className="container mx-auto p-6 max-w-7xl">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            {onBack && (
-              <>
-                <Button variant="ghost" size="sm" onClick={onBack}>← 返回</Button>
-                <Separator orientation="vertical" className="h-4" />
-              </>
-            )}
-            <p className="text-sm text-muted-foreground">
-              共 {tools.length} 个工具
-            </p>
-            <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
-              <SelectTrigger className="w-32 h-8">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="time-desc">最新优先</SelectItem>
-                <SelectItem value="time-asc">最早优先</SelectItem>
-                <SelectItem value="name">按名称</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={openMcpDrawer}>
-              <Server className="w-4 h-4 mr-2" />
-              添加 MCP Server
-            </Button>
-            <Button onClick={handleCreate}>
-              <Plus className="w-4 h-4 mr-2" />
-              创建工具
-            </Button>
-          </div>
-        </div>
+    // Filtered + sorted list. Filters apply on top of the existing
+    // sortedTools order. Search matches name/display_name/description.
+    const q = searchQuery.trim().toLowerCase();
+    const visibleTools = sortedTools.filter((t) => {
+      if (q) {
+        const hay = `${t.name} ${t.display_name || ''} ${t.description || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (typeFilter !== 'all') {
+        const isMcp = t.execution?.type === 'mcp';
+        if (typeFilter === 'mcp' && !isMcp) return false;
+        if (typeFilter === 'http' && (isMcp || t.execution?.type === 'sql')) return false;
+      }
+      if (sourceFilter !== 'all') {
+        const src = t.source || 'user_created';
+        if (sourceFilter !== src) return false;
+      }
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'enabled' && !t.enabled) return false;
+        if (statusFilter === 'disabled' && t.enabled) return false;
+        if (statusFilter === 'approval' && !t.requires_approval) return false;
+      }
+      return true;
+    });
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {tools.length === 0 ? (
-            <Card className="col-span-full">
-              <CardContent className="flex flex-col items-center justify-center py-16">
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                  <Wrench className="w-8 h-8 text-muted-foreground" />
-                </div>
-                <h3 className="text-xl font-semibold mb-2">暂无工具</h3>
-                <p className="text-muted-foreground mb-4">点击"创建工具"按钮添加您的第一个API工具</p>
-                <Button onClick={handleCreate}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  创建工具
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            sortedTools.map((tool) => (
-              <Card
-                key={tool.id}
-                className={`flex flex-col transition-all hover:shadow-md ${!tool.enabled ? 'opacity-60' : ''}`}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${tool.enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                        <Wrench className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-base">{tool.display_name}</CardTitle>
-                        <code className="text-xs text-muted-foreground">{tool.name}</code>
-                      </div>
-                    </div>
-                  </div>
-                  <CardDescription className="mt-2 line-clamp-2">{tool.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="flex-1 pb-3">
-                  <div className="flex gap-2 flex-wrap mb-3">
-                    <Badge variant={tool.source === 'user_created' ? 'default' : 'secondary'}>
-                      {tool.source === 'user_created' ? '自建' : '系统'}
-                    </Badge>
-                    {tool.execution?.type === 'mcp' ? (
-                      <Badge variant="outline" className="border-primary/50 text-primary">
-                        <Server className="w-3 h-3 mr-1" /> MCP
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline">
-                        {tool.execution?.config?.method || 'POST'}
-                      </Badge>
-                    )}
-                    {!tool.enabled && <Badge variant="outline">已停用</Badge>}
-                    {tool.requires_approval && (
-                      <Badge variant="outline" className="border-chart-4/50 text-chart-4">
-                        需审批
-                      </Badge>
-                    )}
-                  </div>
-                  {tool.execution?.type === 'mcp' ? (
-                    <p className="text-xs text-muted-foreground truncate font-mono">
-                      {tool.execution.mcp?.url || (tool.execution.mcp?.command || []).join(' ') || ''}
-                      {tool.execution.mcp?.tool_name ? ` · ${tool.execution.mcp.tool_name}` : ''}
-                    </p>
-                  ) : (
-                    tool.execution?.config?.endpoint && (
-                      <p className="text-xs text-muted-foreground truncate font-mono">
-                        {tool.execution.config.endpoint}
-                      </p>
-                    )
-                  )}
-                </CardContent>
-                <Separator />
-                <div className="flex items-center justify-end gap-1 p-3">
+    const adminCount = tools.filter((t) => t.source === 'admin_assigned').length;
+    const userCount = tools.filter((t) => t.source === 'user_created' || !t.source).length;
+
+    return (
+      <div className="flex h-full flex-col bg-background">
+        <PageHeader
+          breadcrumb={['工作区', '工具']}
+          subtitle={`${adminCount} 全局 · ${userCount} 私有`}
+          actions={
+            onBack ? (
+              <Button variant="ghost" size="sm" onClick={onBack} className="h-7 px-2 text-[12px]">
+                ← 返回
+              </Button>
+            ) : undefined
+          }
+        />
+
+        <div className="flex-1 overflow-y-auto">
+          <div className="w-full px-7 pt-6 pb-12">
+            <PageTitle
+              title="工具"
+              description="工具是 Agent 可以调用的具体能力。HTTP 接口、SQL 查询、JS 脚本均可注册为工具，并支持参数校验、审批策略与权限控制。"
+              actions={
+                <>
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
-                    onClick={() => handleToggleEnabled(tool)}
+                    onClick={() =>
+                      toast({
+                        title: '导入 OpenAPI 即将开放',
+                        description: '此入口尚未接通后端 OpenAPI 解析；先用「新建工具」或「导入 MCP 服务」。',
+                      })
+                    }
+                    className="gap-1.5"
                   >
-                    {tool.enabled ? <Pause className="w-4 h-4 mr-1.5" /> : <Play className="w-4 h-4 mr-1.5" />}
-                    {tool.enabled ? '停用' : '启用'}
+                    <Upload className="h-3.5 w-3.5" />
+                    导入 OpenAPI
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleEdit(tool)}
-                  >
-                    <Edit2 className="w-4 h-4 mr-1.5" />
-                    编辑
+                  <Button variant="outline" size="sm" onClick={openMcpDrawer} className="gap-1.5">
+                    <Server className="h-3.5 w-3.5" />
+                    导入 MCP 服务
                   </Button>
-                  {(isAdminMode || tool.source === 'user_created') && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(tool)}
-                      className="text-chart-5 hover:text-chart-5"
-                    >
-                      <Trash2 className="w-4 h-4 mr-1.5" />
-                      删除
+                  <Button size="sm" onClick={handleCreate} className="gap-1.5">
+                    <Plus className="h-3.5 w-3.5" />
+                    新建工具
+                  </Button>
+                </>
+              }
+            />
+
+            <Toolbar>
+              <div className="relative flex-1 min-w-[240px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="搜索工具名、描述…"
+                  className="h-8 pl-8 text-[12.5px]"
+                />
+              </div>
+              <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部类型</SelectItem>
+                  <SelectItem value="http">HTTP</SelectItem>
+                  <SelectItem value="mcp">MCP</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as typeof sourceFilter)}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部来源</SelectItem>
+                  <SelectItem value="user_created">私有</SelectItem>
+                  <SelectItem value="admin_assigned">全局</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部状态</SelectItem>
+                  <SelectItem value="enabled">已启用</SelectItem>
+                  <SelectItem value="disabled">已停用</SelectItem>
+                  <SelectItem value="approval">需审批</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="time-desc">最新优先</SelectItem>
+                  <SelectItem value="time-asc">最早优先</SelectItem>
+                  <SelectItem value="name">按名称</SelectItem>
+                </SelectContent>
+              </Select>
+            </Toolbar>
+
+            {visibleTools.length === 0 ? (
+              tools.length === 0 ? (
+                <EmptyState
+                  icon={<Wrench className="h-5 w-5" />}
+                  title="暂无工具"
+                  description="点击「新建工具」添加你的第一个 API 工具，或导入 MCP 服务批量接入。"
+                  action={
+                    <Button size="sm" onClick={handleCreate} className="gap-1.5">
+                      <Plus className="h-3.5 w-3.5" />
+                      新建工具
                     </Button>
-                  )}
-                </div>
-              </Card>
-            ))
-          )}
+                  }
+                />
+              ) : (
+                <EmptyState
+                  title="没有匹配的工具"
+                  description="调整筛选条件再试一次。"
+                />
+              )
+            ) : (
+              <div className="rounded-lg border border-border bg-card overflow-hidden">
+                <Table className="table-fixed">
+                  <colgroup>
+                    <col className="w-[42%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[4%]" />
+                  </colgroup>
+                  <TableHeader>
+                    <TableRow className="border-b-border bg-muted/40 hover:bg-muted/40">
+                      <TableHead className="h-9 px-3">工具</TableHead>
+                      <TableHead className="h-9 px-3">类型</TableHead>
+                      <TableHead className="h-9 px-3">来源</TableHead>
+                      <TableHead className="h-9 px-3">状态</TableHead>
+                      <TableHead className="h-9 px-3 text-right">7天调用</TableHead>
+                      <TableHead className="h-9 px-3 text-right">P95</TableHead>
+                      <TableHead className="h-9 px-3">更新</TableHead>
+                      <TableHead className="h-9 px-3"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {visibleTools.map((t) => {
+                      const isMcp = t.execution?.type === 'mcp';
+                      const method = (t.execution?.config?.method || 'POST').toUpperCase();
+                      const m = metricsFor(t.name, !!t.enabled);
+                      const updated = t.created_at
+                        ? new Date(t.created_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+                        : '——';
+                      const sourceLabel = t.source === 'admin_assigned' ? '全局' : '私有';
+                      return (
+                        <TableRow
+                          key={t.id}
+                          onClick={() => handleEdit(t)}
+                          className="cursor-pointer"
+                        >
+                          <TableCell className="min-w-0 px-3 py-1.5">
+                            <div className="flex min-w-0 flex-col">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate font-mono text-[12.5px] font-medium text-foreground">
+                                  {t.name}
+                                </span>
+                                {t.requires_approval && <Pill tone="warning" dot>需审批</Pill>}
+                              </div>
+                              <span className="truncate text-[11.5px] leading-tight text-muted-foreground">
+                                {t.description || t.display_name}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            {isMcp ? (
+                              <Pill tone="info" mono>MCP</Pill>
+                            ) : (
+                              <Pill tone="info" mono>{method}</Pill>
+                            )}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            <Pill tone="outline">{sourceLabel}</Pill>
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            {t.enabled ? (
+                              t.requires_approval ? (
+                                <Pill tone="warning" dot>需审批</Pill>
+                              ) : (
+                                <Pill tone="success" dot>已启用</Pill>
+                              )
+                            ) : (
+                              <Pill tone="neutral" dot>已停用</Pill>
+                            )}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
+                            {formatCalls(m.calls_7d)}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
+                            {m.p95}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-[12px] text-muted-foreground whitespace-nowrap">
+                            {updated}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                                >
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                                <DropdownMenuItem onClick={() => handleEdit(t)}>
+                                  <Edit2 className="mr-2 h-3.5 w-3.5" />
+                                  编辑
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleToggleEnabled(t)}>
+                                  {t.enabled ? (
+                                    <>
+                                      <Pause className="mr-2 h-3.5 w-3.5" />
+                                      停用
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play className="mr-2 h-3.5 w-3.5" />
+                                      启用
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                                {(isAdminMode || t.source === 'user_created' || !t.source) && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => handleDelete(t)}
+                                      className="text-destructive focus:text-destructive"
+                                    >
+                                      <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                      删除
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
         </div>
 
         <Drawer open={mcpDrawerOpen} onOpenChange={setMcpDrawerOpen}>
