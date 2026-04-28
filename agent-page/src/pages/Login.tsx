@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -11,9 +11,17 @@ export default function Login() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // If a logged-in user lands on /login (browser back, manual URL),
+  // bounce them straight into the app — never show the login form to
+  // someone who is already authenticated. Use replace so /login
+  // never sticks on the history stack.
+  useEffect(() => {
+    if (user) navigate('/', { replace: true });
+  }, [user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,7 +52,9 @@ export default function Login() {
         title: '登录成功',
         description: '欢迎回来！',
       });
-      navigate('/');
+      // Replace history entry so the browser back button can never
+      // step back to /login while the user is authenticated.
+      navigate('/', { replace: true });
     } catch (err: any) {
       console.error('Login error:', err);
       const message = err.response?.data?.detail || '登录失败，请检查手机号和密码';

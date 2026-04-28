@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -16,9 +16,16 @@ export default function Register() {
     email: '',
   });
   const [loading, setLoading] = useState(false);
-  const { register } = useAuth();
+  const { register, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Mirror Login: an authenticated user landing on /register goes
+  // straight to the app, replacing the entry so back doesn't bring
+  // them back here.
+  useEffect(() => {
+    if (user) navigate('/', { replace: true });
+  }, [user, navigate]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -83,7 +90,9 @@ export default function Register() {
         title: '注册成功',
         description: '欢迎加入！正在跳转...',
       });
-      navigate('/');
+      // Replace history entry so the browser back button can't step
+      // back to /register or /login once the user is authenticated.
+      navigate('/', { replace: true });
     } catch (err: any) {
       console.error('Register error:', err);
       const message = err.response?.data?.detail || '注册失败，请重试';
