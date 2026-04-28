@@ -45,7 +45,7 @@ import {
 } from './ui/dropdown-menu';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
-import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2 } from './design';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field } from './design';
 import { metricsFor as skillMetricsFor, formatRuns } from '../mock/skill_metrics';
 import { cn } from '../lib/utils';
 
@@ -806,83 +806,84 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
           </Card>
         </Collapsible>
 
-        {/* Basic Information — flat H2 layout */}
-        <H2>基础信息</H2>
-        <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="skill-name" className="flex items-center gap-2">
-                  技能名称 (name) *
-                  {viewMode === 'edit' && (
-                    <span className="text-xs font-normal text-chart-4">
-                      🔒 编辑时不可修改
-                    </span>
-                  )}
-                </Label>
-                <Input
-                  id="skill-name"
-                  value={formData.name || ''}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  disabled={viewMode === 'edit'}
-                  placeholder="例如: analyze_sentiment"
-                  className={viewMode === 'edit' ? 'cursor-not-allowed' : ''}
-                />
-                <p className="text-sm text-muted-foreground">
-                  {viewMode === 'edit' ? '技能名称是唯一标识符，创建后不可修改' : '用于代码调用的唯一标识符'}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="skill-display-name">显示名称 *</Label>
-                <Input
-                  id="skill-display-name"
-                  value={formData.display_name || ''}
-                  onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                  placeholder="例如: 情感分析"
-                />
-              </div>
-            </div>
+        {/* Basic Information — 12-col grid w/ Field atoms */}
+        <H2 first>基础信息</H2>
+        <div className="grid grid-cols-12 gap-3.5">
+          <Field
+            label={
+              <span className="flex items-center gap-2">
+                技能名 (name)
+                {viewMode === 'edit' && (
+                  <span className="text-[10px] font-normal text-chart-4">🔒 不可修改</span>
+                )}
+              </span>
+            }
+            span={6}
+            required
+            hint={viewMode === 'edit' ? '技能名是唯一标识符，创建后不可修改' : 'snake_case，用于代码调用'}
+          >
+            <Input
+              value={formData.name || ''}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              disabled={viewMode === 'edit'}
+              placeholder="例如: analyze_sentiment"
+              className={cn(
+                'h-8 font-mono text-[12.5px]',
+                viewMode === 'edit' && 'cursor-not-allowed',
+              )}
+            />
+          </Field>
 
-            <div className="space-y-2">
-              <Label htmlFor="skill-category">分类 *</Label>
-              <Select
-                value={formData.category || 'analysis'}
-                onValueChange={(value) => setFormData({ ...formData, category: value })}
-              >
-                <SelectTrigger id="skill-category">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="analysis">分析 (analysis)</SelectItem>
-                  <SelectItem value="extraction">提取 (extraction)</SelectItem>
-                  <SelectItem value="comparison">对比 (comparison)</SelectItem>
-                  <SelectItem value="automation">自动化 (automation)</SelectItem>
-                  <SelectItem value="reporting">报告生成 (reporting)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <Field label="显示名" span={6} required>
+            <Input
+              value={formData.display_name || ''}
+              onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+              placeholder="例如: 情感分析"
+              className="h-8 text-[12.5px]"
+            />
+          </Field>
 
-            <div className="space-y-2">
-              <Label htmlFor="skill-description">描述 *</Label>
-              <Textarea
-                id="skill-description"
-                value={formData.description || ''}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="技能的详细描述"
-                rows={2}
-              />
-            </div>
+          <Field label="分类" span={6} required>
+            <Select
+              value={formData.category || 'analysis'}
+              onValueChange={(value) => setFormData({ ...formData, category: value })}
+            >
+              <SelectTrigger className="h-8 text-[12.5px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="analysis">分析 (analysis)</SelectItem>
+                <SelectItem value="extraction">提取 (extraction)</SelectItem>
+                <SelectItem value="comparison">对比 (comparison)</SelectItem>
+                <SelectItem value="automation">自动化 (automation)</SelectItem>
+                <SelectItem value="reporting">报告生成 (reporting)</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
 
-            <div className="space-y-2">
-              <Label htmlFor="skill-calling-guide">调用指南</Label>
-              <Textarea
-                id="skill-calling-guide"
-                value={formData.calling_guide || ''}
-                onChange={(e) => setFormData({ ...formData, calling_guide: e.target.value })}
-                placeholder="何时使用这个技能以及如何使用"
-                rows={2}
-              />
-              <p className="text-sm text-muted-foreground">这段文字会帮助AI更好地理解和使用技能</p>
-            </div>
+          <Field label="简介" span={12} required>
+            <Textarea
+              value={formData.description || ''}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="处理订单查询、退款、改地址等常见运营任务，自动调用 ERP 与飞书。"
+              rows={2}
+              className="text-[12.5px]"
+            />
+          </Field>
+
+          <Field
+            label="调用指南"
+            span={12}
+            hint="给 AI 看的「何时该用 / 不该用」提示，帮助模型更精准地选择技能。"
+          >
+            <Textarea
+              value={formData.calling_guide || ''}
+              onChange={(e) => setFormData({ ...formData, calling_guide: e.target.value })}
+              placeholder="何时使用这个技能以及如何使用"
+              rows={2}
+              className="text-[12.5px]"
+            />
+          </Field>
         </div>
 
         {/* Workflow Template — flat H2 layout */}

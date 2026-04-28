@@ -15,3 +15,4 @@ export { Toolbar } from './Toolbar';
 export { StatCard } from './StatCard';
 export { EmptyState } from './EmptyState';
 export { H2 } from './H2';
+export { Field } from './Field';

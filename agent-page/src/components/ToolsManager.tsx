@@ -45,8 +45,9 @@ import {
 } from './ui/dropdown-menu';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
-import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2 } from './design';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field } from './design';
 import { metricsFor, formatCalls } from '../mock/tool_metrics';
+import { cn } from '../lib/utils';
 
 type ViewMode = 'list' | 'create' | 'edit';
 
@@ -1271,93 +1272,99 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
             </div>
 
       <div>
-        {/* Section 1: Basic Info — flat H2 layout per v3 design */}
+        {/* Section 1: Basic Info — 12-col grid w/ Field atoms */}
         <H2 first>基础信息</H2>
         <p className="-mt-2 mb-4 text-[11.5px] text-muted-foreground">
           工具名称用于代码调用，只能包含字母、数字和下划线。调用指南会帮助 AI 理解何时使用这个工具。
         </p>
-        <div className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="name" className="flex items-center gap-2">
-                工具名称 (name) *
+        <div className="grid grid-cols-12 gap-3.5">
+          <Field
+            label={
+              <span className="flex items-center gap-2">
+                工具名 (name)
                 {viewMode === 'edit' && (
-                  <span className="text-xs font-normal text-chart-4">
-                    🔒 编辑时不可修改
-                  </span>
+                  <span className="text-[10px] font-normal text-chart-4">🔒 不可修改</span>
                 )}
-              </Label>
-              <Input
-                id="name"
-                value={formData.name || ''}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                disabled={viewMode === 'edit'}
-                placeholder="例如: web_search"
-                className={viewMode === 'edit' ? 'cursor-not-allowed' : ''}
+              </span>
+            }
+            span={6}
+            required
+            hint={
+              viewMode === 'edit'
+                ? '工具名称是唯一标识符，创建后不可修改'
+                : 'snake_case，将作为模型调用时的 tool_call name'
+            }
+          >
+            <Input
+              value={formData.name || ''}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              disabled={viewMode === 'edit'}
+              placeholder="例如: web_search"
+              className={cn(
+                'h-8 font-mono text-[12.5px]',
+                viewMode === 'edit' && 'cursor-not-allowed',
+              )}
+            />
+          </Field>
+
+          <Field label="显示名" span={6} required>
+            <Input
+              value={formData.display_name || ''}
+              onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+              placeholder="例如: 网络搜索"
+              className="h-8 text-[12.5px]"
+            />
+          </Field>
+
+          <Field
+            label="描述（给模型看）"
+            span={12}
+            required
+            hint="清晰描述这个工具的用途、何时该调用、不该调用的场景。模型会基于此判断是否使用。"
+          >
+            <Textarea
+              value={formData.description || ''}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="工具的详细描述，说明它的功能和用途"
+              rows={3}
+              className="text-[12.5px]"
+            />
+          </Field>
+
+          <Field
+            label="调用指南"
+            span={12}
+            hint="给 AI 看的「何时该用 / 不该用」提示，帮助模型更精准地选择工具。"
+          >
+            <Textarea
+              value={formData.calling_guide || ''}
+              onChange={(e) => setFormData({ ...formData, calling_guide: e.target.value })}
+              placeholder="例如：适用于查询实时天气信息，需要提供城市名称"
+              rows={3}
+              className="text-[12.5px]"
+            />
+          </Field>
+
+          <div className="col-span-12 flex flex-wrap gap-x-6 gap-y-2 pt-1">
+            <label className="flex items-center gap-2 text-[12.5px] text-foreground">
+              <input
+                type="checkbox"
+                checked={formData.requires_approval || false}
+                onChange={(e) => setFormData({ ...formData, requires_approval: e.target.checked })}
+                className="h-3.5 w-3.5 rounded"
               />
-              <p className="text-sm text-muted-foreground">
-                {viewMode === 'edit'
-                  ? '工具名称是唯一标识符，创建后不可修改'
-                  : '用于代码调用的唯一标识符，只能包含字母、数字和下划线'
-                }
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="display_name">显示名称 *</Label>
-              <Input
-                id="display_name"
-                value={formData.display_name || ''}
-                onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                placeholder="例如: 网络搜索"
+              调用前需要审批
+            </label>
+            <label className="flex items-center gap-2 text-[12.5px] text-foreground">
+              <input
+                type="checkbox"
+                checked={formData.enabled !== false}
+                onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
+                className="h-3.5 w-3.5 rounded"
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description">描述 *</Label>
-              <Textarea
-                id="description"
-                value={formData.description || ''}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="工具的详细描述，说明它的功能和用途"
-                rows={3}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="calling_guide">调用指南</Label>
-              <Textarea
-                id="calling_guide"
-                value={formData.calling_guide || ''}
-                onChange={(e) => setFormData({ ...formData, calling_guide: e.target.value })}
-                placeholder="帮助AI理解何时以及如何使用这个工具。例如：适用于查询实时天气信息，需要提供城市名称"
-                rows={3}
-              />
-              <p className="text-sm text-muted-foreground">这段文字会帮助AI更好地理解和使用工具</p>
-            </div>
-
-            <div className="flex gap-6">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="requires_approval"
-                  checked={formData.requires_approval || false}
-                  onChange={(e) => setFormData({ ...formData, requires_approval: e.target.checked })}
-                  className="h-4 w-4 rounded"
-                />
-                <Label htmlFor="requires_approval" className="font-normal">调用前需要审批</Label>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="enabled"
-                  checked={formData.enabled !== false}
-                  onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                  className="h-4 w-4 rounded"
-                />
-                <Label htmlFor="enabled" className="font-normal">启用此工具</Label>
-              </div>
-            </div>
+              启用此工具
+            </label>
+          </div>
         </div>
 
         {/* Section 2: Execution Config */}
