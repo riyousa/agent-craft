@@ -17,7 +17,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // 从 localStorage 读取保存的主题设置
   const [theme, setThemeState] = useState<Theme>(() => {
     const savedTheme = localStorage.getItem('theme');
-    return (savedTheme as Theme) || 'slate';
+    // Default to zinc — matches the v3 design system (中性 zinc + 黑白主调).
+    return (savedTheme as Theme) || 'zinc';
   });
 
   const [mode, setModeState] = useState<ThemeMode>(() => {

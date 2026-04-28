@@ -23,11 +23,15 @@ export const Layout: React.FC<LayoutProps> = ({
     <SidebarProvider className="!min-h-0 h-full">
       <AppSidebar currentView={currentView} onNavigate={onNavigate} />
       <SidebarInset className="min-h-0">
-        <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4 bg-background">
-          <div className="flex items-center gap-2">
+        {/* 48px topbar — matches v3 design system (was 64px). The
+            page-level breadcrumb / actions are rendered by each page
+            via <PageHeader/> from components/design when applicable;
+            this app-level topbar stays minimal. */}
+        <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4 bg-background">
+          <div className="flex items-center gap-2 min-w-0">
             <SidebarTrigger className="-ml-1" />
-            <Separator orientation="vertical" className="mr-2 h-4" />
-            <h1 className="text-lg font-semibold text-foreground">
+            <Separator orientation="vertical" className="mr-1 h-4" />
+            <h1 className="text-sm font-medium text-foreground tracking-tight truncate">
               {currentView === 'chat' && '对话助手'}
               {currentView === 'user-tools' && '我的工具'}
               {currentView === 'user-skills' && '我的技能'}
