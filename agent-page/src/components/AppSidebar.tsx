@@ -17,7 +17,7 @@
  * Replacing them with live values is one API call away (see design_update.md
  * Phase 4).
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   MessageSquare,
@@ -36,6 +36,7 @@ import {
   Settings,
   Eye,
   ShieldCheck,
+  Loader2,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -47,10 +48,8 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarSeparator,
   SidebarTrigger,
 } from './ui/sidebar';
 import {
@@ -103,17 +102,33 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
   const { toast } = useToast();
   const [profileOpen, setProfileOpen] = useState(false);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
-  const [recents, setRecents] = useState<ConversationListItem[]>([]);
 
-  // Pull the 5 most recent conversations once on mount. Failures here are
-  // non-fatal — we just hide the section if it errors.
-  useEffect(() => {
-    let cancelled = false;
-    chatApi.listConversations(1, 5).then((res) => {
-      if (!cancelled) setRecents(res.items || []);
-    }).catch(() => {});
-    return () => { cancelled = true; };
+  // Recent conversations — paginated like the old drawer flow:
+  // initial 15, "加载更多" appends another 15 until the API says
+  // there's nothing left.
+  const RECENTS_PAGE_SIZE = 15;
+  const [recents, setRecents] = useState<ConversationListItem[]>([]);
+  const [recentsPage, setRecentsPage] = useState(1);
+  const [recentsHasMore, setRecentsHasMore] = useState(false);
+  const [recentsLoadingMore, setRecentsLoadingMore] = useState(false);
+
+  const loadRecents = useCallback(async (page: number, append: boolean) => {
+    if (page > 1) setRecentsLoadingMore(true);
+    try {
+      const res = await chatApi.listConversations(page, RECENTS_PAGE_SIZE);
+      setRecents((prev) => (append ? [...prev, ...(res.items || [])] : (res.items || [])));
+      setRecentsHasMore(!!res.has_more);
+      setRecentsPage(page);
+    } catch {
+      // Non-fatal — leave the section blank if it errors.
+    } finally {
+      setRecentsLoadingMore(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadRecents(1, false);
+  }, [loadRecents]);
 
   const handleLogout = () => {
     logout();
@@ -127,6 +142,37 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
       description: '后端尚未提供全文搜索接口，可临时使用「对话历史」页内搜索。',
     });
   };
+
+  // Global keyboard shortcuts. ⌘N (Ctrl+N on Win/Linux) starts a fresh
+  // chat thread, ⌘K opens the search affordance. Skip when the user is
+  // actively typing into a form field so we don't steal real keystrokes.
+  useEffect(() => {
+    const isEditable = (el: EventTarget | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (el.isContentEditable) return true;
+      return false;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      if (key === 'n') {
+        if (isEditable(e.target)) return;
+        e.preventDefault();
+        onNavigate('chat');
+      } else if (key === 'k') {
+        // ⌘K can be intercepted from anywhere — that's the convention.
+        e.preventDefault();
+        handleSearch();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // handleSearch is stable enough — it only closes over toast.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onNavigate]);
 
   const initial = (user?.name?.charAt(0) || 'U').toUpperCase();
   const isAdmin = (user?.role_level || 0) >= 2;
@@ -231,7 +277,6 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
                         active && 'font-medium',
                       )}
                     >
-                      {/* Active 2.5px accent rail per design */}
                       {active && (
                         <span
                           aria-hidden
@@ -239,13 +284,13 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
                         />
                       )}
                       <Icon className="h-3.5 w-3.5" />
-                      <span>{it.label}</span>
+                      <span className="flex-1 truncate">{it.label}</span>
+                      {it.badge && (
+                        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                          {it.badge}
+                        </span>
+                      )}
                     </SidebarMenuButton>
-                    {it.badge && (
-                      <SidebarMenuBadge className="font-mono text-[10px] text-muted-foreground">
-                        {it.badge}
-                      </SidebarMenuBadge>
-                    )}
                   </SidebarMenuItem>
                 );
               })}
@@ -283,7 +328,7 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
                           />
                         )}
                         <Icon className="h-3.5 w-3.5" />
-                        <span>{it.label}</span>
+                        <span className="flex-1 truncate">{it.label}</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   );
@@ -319,13 +364,37 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
                       }}
                       className="h-7 text-[12px]"
                     >
-                      <span className="truncate">{c.title || '未命名对话'}</span>
+                      {/* Title is the flex child that flexes; time chip
+                          stays shrink-0 on the right so even very long
+                          conversation names truncate cleanly without
+                          sliding under the timestamp. */}
+                      <span className="flex-1 truncate">
+                        {c.title || '未命名对话'}
+                      </span>
+                      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                        {relTime(c.updated_at || c.created_at)}
+                      </span>
                     </SidebarMenuButton>
-                    <SidebarMenuBadge className="font-mono text-[10px] text-muted-foreground">
-                      {relTime(c.updated_at || c.created_at)}
-                    </SidebarMenuBadge>
                   </SidebarMenuItem>
                 ))}
+                {recentsHasMore && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      onClick={() => loadRecents(recentsPage + 1, true)}
+                      disabled={recentsLoadingMore}
+                      className="h-7 justify-center text-[11.5px] text-muted-foreground hover:text-foreground"
+                    >
+                      {recentsLoadingMore ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span>加载中…</span>
+                        </>
+                      ) : (
+                        <span>加载更多</span>
+                      )}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
