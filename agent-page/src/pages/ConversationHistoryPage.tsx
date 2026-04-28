@@ -216,7 +216,10 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[1100px] px-7 pt-6 pb-12">
+        {/* Stretch to fill the main pane — only cap on ultra-wide displays
+            so the table doesn't become too sparse. Padding sits on the
+            inner div so the page edges look consistent. */}
+        <div className="mx-auto w-full max-w-[1480px] px-6 pt-6 pb-12">
           <PageTitle
             title="对话历史"
             description="查看、检索、归档你与 Agent 的所有会话。删除对话不会撤销已执行的工具操作。"
@@ -302,15 +305,28 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
             />
           ) : (
             <div className="rounded-lg border border-border bg-card overflow-hidden">
-              <Table>
+              {/* Fixed layout so cell widths come from <colgroup>, not from
+                  the longest content. The "会话" column is the only `auto`
+                  column — it absorbs all extra width on wide screens and
+                  truncates on narrow ones, while the metric columns stay
+                  pinned to readable widths. */}
+              <Table className="table-fixed">
+                <colgroup>
+                  <col className="w-10" />
+                  <col />
+                  <col className="w-[120px]" />
+                  <col className="w-[80px]" />
+                  <col className="w-[110px]" />
+                  <col className="w-10" />
+                </colgroup>
                 <TableHeader>
                   <TableRow className="border-b-border bg-muted/40 hover:bg-muted/40">
-                    <TableHead className="w-[36px]"></TableHead>
-                    <TableHead>会话</TableHead>
-                    <TableHead className="w-[140px]">工具 / 消息</TableHead>
-                    <TableHead className="w-[88px] text-right">TOKENS</TableHead>
-                    <TableHead className="w-[120px]">更新于</TableHead>
-                    <TableHead className="w-[44px]"></TableHead>
+                    <TableHead className="h-9 px-3"></TableHead>
+                    <TableHead className="h-9 px-3">会话</TableHead>
+                    <TableHead className="h-9 px-3">工具 / 消息</TableHead>
+                    <TableHead className="h-9 px-3 text-right">TOKENS</TableHead>
+                    <TableHead className="h-9 px-3">更新于</TableHead>
+                    <TableHead className="h-9 px-3"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -320,7 +336,7 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                       onClick={() => onSelectConversation(c.thread_id)}
                       className="cursor-pointer"
                     >
-                      <TableCell className="py-2.5">
+                      <TableCell className="px-3 py-1.5">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -343,9 +359,9 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                           />
                         </button>
                       </TableCell>
-                      <TableCell className="py-2.5">
-                        <div className="flex min-w-0 flex-col gap-0.5">
-                          <div className="flex items-center gap-2">
+                      <TableCell className="min-w-0 px-3 py-1.5">
+                        <div className="flex min-w-0 flex-col">
+                          <div className="flex min-w-0 items-center gap-2">
                             <span className="truncate text-[13px] font-medium text-foreground">
                               {c.title || '未命名对话'}
                             </span>
@@ -354,22 +370,22 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                             )}
                           </div>
                           {c.last_message && (
-                            <span className="truncate text-[11.5px] leading-snug text-muted-foreground">
+                            <span className="truncate text-[11.5px] leading-tight text-muted-foreground">
                               {c.last_message}
                             </span>
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="py-2.5 font-mono text-[12px] text-muted-foreground">
-                        {c._stats.tools_called} 工具 · {c.message_count} 条
+                      <TableCell className="px-3 py-1.5 font-mono text-[12px] text-muted-foreground whitespace-nowrap">
+                        {c._stats.tools_called}·{c.message_count}
                       </TableCell>
-                      <TableCell className="py-2.5 text-right font-mono text-[12px] text-muted-foreground">
+                      <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
                         {formatTokens(c._stats.tokens_total)}
                       </TableCell>
-                      <TableCell className="py-2.5 text-[12px] text-muted-foreground">
+                      <TableCell className="px-3 py-1.5 text-[12px] text-muted-foreground whitespace-nowrap">
                         {formatRelative(c.updated_at || c.created_at)}
                       </TableCell>
-                      <TableCell className="py-2.5">
+                      <TableCell className="px-3 py-1.5">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <button
