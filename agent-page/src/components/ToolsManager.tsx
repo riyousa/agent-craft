@@ -1205,12 +1205,9 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
     );
   }
 
-  // Form view (Create/Edit) — wrapped in v3 design chrome.
-  // The body is unchanged; only the header / page-title row is
-  // promoted to PageHeader + PageTitle so it matches the rest of the
-  // redesigned pages. A two-pane "AI assistant on the right" layout
-  // is documented in design_update.md Phase 1.3 as a follow-up; the
-  // existing inline collapsible AI helper stays put for now.
+  // Form view (Create/Edit) — v3 two-pane layout: form on the left,
+  // AI assistant pinned to a 380px right sidebar (instead of the
+  // legacy inline collapsible card).
   return (
     <div className="flex h-full flex-col bg-background">
       <PageHeader
@@ -1225,6 +1222,15 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
             <Button variant="ghost" size="sm" onClick={handleCancel} className="h-7 px-2 text-[12px]">
               放弃
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openTestDrawer}
+              className="h-7 gap-1.5 px-3 text-[12px]"
+            >
+              <Play className="h-3.5 w-3.5" />
+              测试运行
+            </Button>
             <Button size="sm" onClick={handleSave} className="h-7 gap-1.5 px-3 text-[12px]">
               <CheckCircle2 className="h-3.5 w-3.5" />
               {viewMode === 'create' ? '创建并保存' : '保存'}
@@ -1233,84 +1239,18 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
         }
       />
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl px-7 pt-6 pb-12">
-          <PageTitle
-            title={viewMode === 'create' ? '新建工具' : (formData.display_name || formData.name || '编辑工具')}
-            description={
-              viewMode === 'create'
-                ? '通过表单或下方的 AI 助手快速搭建一个新工具。HTTP / SQL / JS 都可以注册成 Agent 可调用的能力。'
-                : `工具标识：${formData.name}`
-            }
-          />
-
-      {/* AI Assistant Section */}
-      <Collapsible defaultOpen={false} className="mb-8">
-        <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-secondary/5">
-          <CollapsibleTrigger asChild>
-            <CardHeader className="cursor-pointer">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5" />
-                  <span>AI配置助手</span>
-                </CardTitle>
-                <ChevronDown className="w-4 h-4 text-muted-foreground transition-transform [[data-state=closed]_&]:rotate-[-90deg]" />
-              </div>
-              <CardDescription>
-                {viewMode === 'create'
-                  ? '描述您的API，AI将自动填充下方配置'
-                  : '描述新的API配置需求，AI将帮助您优化工具配置'}
-              </CardDescription>
-            </CardHeader>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent className="space-y-4">
-              <Textarea
-                value={aiDescription}
-                onChange={(e) => setAiDescription(e.target.value)}
-                placeholder={viewMode === 'create'
-                  ? "例如：我需要调用天气查询API。端点是 https://api.weather.com/v1/weather，使用GET方法。需要传入city参数（城市名）。认证方式是在请求头添加X-API-Key，密钥在环境变量WEATHER_API_KEY中。返回的JSON中，天气信息在data.weather对象下，包含temperature、humidity、description字段。"
-                  : "例如：修改端点为新版本v2，增加timeout参数，将认证方式改为Bearer Token"
-                }
-                rows={4}
-                disabled={aiLoading}
-                className="resize-none"
-              />
-              {aiError && (
-                <div className="flex items-center gap-2 text-destructive text-sm">
-                  <AlertCircle className="w-4 h-4" />
-                  <span>{aiError}</span>
-                </div>
-              )}
-              <div className="flex items-center gap-3">
-                <Button
-                  onClick={handleAIGenerate}
-                  disabled={aiLoading || !aiDescription.trim()}
-                  className="flex-1"
-                >
-                  {aiLoading ? (
-                    <>
-                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-current border-r-transparent mr-2"></span>
-                      AI生成中...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      {viewMode === 'create' ? '自动生成配置' : 'AI 优化配置'}
-                    </>
-                  )}
-                </Button>
-              </div>
-              {viewMode === 'edit' && (
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Lightbulb className="w-3 h-3" />
-                  提示：AI将在保留工具名称的基础上更新其他配置
-                </p>
-              )}
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
+      <div className="flex flex-1 min-h-0">
+        {/* Left pane — form body */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-3xl px-7 pt-6 pb-12">
+            <PageTitle
+              title={viewMode === 'create' ? '新建工具' : (formData.display_name || formData.name || '编辑工具')}
+              description={
+                viewMode === 'create'
+                  ? '描述好你的 API，右侧 AI 助手可以从 cURL / 文档自动填表，也可以手动配置。'
+                  : `工具标识：${formData.name}`
+              }
+            />
 
       <div className="space-y-8">
         {/* Section 1: Basic Info */}
@@ -2057,7 +1997,82 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
           </CardContent>
         </Card>
       </div>
+          </div>
         </div>
+
+        {/* Right pane — AI assistant. Replaces the legacy inline
+            collapsible card. The existing handleAIGenerate /
+            aiDescription / aiLoading state is wired in unchanged so
+            existing parsing logic still applies. */}
+        <aside className="hidden w-[380px] flex-shrink-0 flex-col border-l border-border bg-muted/30 md:flex">
+          <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+            <Sparkles className="h-3.5 w-3.5 text-foreground" />
+            <span className="text-[12.5px] font-semibold text-foreground">AI 助手</span>
+            <Pill tone="info" className="ml-auto">BETA</Pill>
+          </header>
+
+          <div className="flex-1 overflow-y-auto p-3.5 flex flex-col gap-3">
+            <div className="rounded-lg bg-muted px-3 py-2.5 text-[12.5px] leading-relaxed text-foreground">
+              我可以帮你：从 cURL / OpenAPI 生成工具定义、补全参数描述、检查参数校验是否齐全。
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {[
+                { label: '从 cURL 创建', seed: 'curl -X POST https://example.com/api/foo \\\n  -H "Authorization: Bearer ${API_TOKEN}" \\\n  -d \'{"key":"value"}\'\n请基于上面的 curl 生成工具定义。' },
+                { label: '检查参数描述质量', seed: '请检查当前工具的参数描述是否清晰、完整，给出建议。' },
+                { label: '生成 3 条测试用例', seed: '请基于当前工具配置生成 3 条覆盖正常 / 边界 / 异常的测试用例。' },
+                { label: '推荐审批策略', seed: '基于这个工具的副作用，推荐合适的审批策略和阈值。' },
+              ].map((s, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setAiDescription(s.seed)}
+                  className="flex h-8 items-center gap-2 rounded-md border border-border bg-background px-3 text-left text-[12.5px] text-foreground transition-colors hover:bg-accent"
+                >
+                  <Sparkles className="h-3 w-3 text-muted-foreground" />
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {aiError && (
+              <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                <span>{aiError}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2 border-t border-border p-3">
+            <Textarea
+              value={aiDescription}
+              onChange={(e) => setAiDescription(e.target.value)}
+              placeholder={
+                viewMode === 'create'
+                  ? '问问 AI… 例如：把支付接口的 cURL 转成工具'
+                  : '问问 AI… 例如：把这个工具改成支持批量退款'
+              }
+              rows={2}
+              disabled={aiLoading}
+              className="min-h-[44px] resize-none bg-background text-[12.5px]"
+            />
+            <div className="flex items-center gap-2">
+              <Pill tone="outline" mono>{viewMode === 'create' ? '生成' : '优化'}</Pill>
+              <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">
+                {aiLoading ? '处理中…' : `${aiDescription.length} 字`}
+              </span>
+              <Button
+                size="sm"
+                onClick={handleAIGenerate}
+                disabled={aiLoading || !aiDescription.trim()}
+                className="h-7 gap-1 px-2.5 text-[12px]"
+              >
+                {aiLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                {aiLoading ? '生成中' : (viewMode === 'create' ? '自动生成' : 'AI 优化')}
+              </Button>
+            </div>
+          </div>
+        </aside>
       </div>
       <ConfirmDialog />
     </div>

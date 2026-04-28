@@ -228,9 +228,9 @@ agent-page/src/mock/
 - [x] **Phase 0.5** 侧边栏对齐
 - [x] **Phase 1.1** 对话历史
 - [x] **Phase 1.2** 工具列表
-- [x] **Phase 1.3** 工具编辑器（chrome 已对齐；双栏 AI 助手布局延后）
+- [x] **Phase 1.3** 工具编辑器（双栏 AI 助手已落地）
 - [x] **Phase 1.4** 技能列表
-- [x] **Phase 1.5** 技能编辑器（chrome 已对齐）
+- [x] **Phase 1.5** 技能编辑器（920px 容器 + 元数据 header + 「预览对话」按钮）
 - [x] **Phase 1.6** 文件管理（FileThumb 已替换 emoji；PageHeader 包装延后）
 - [ ] **Phase 1.7** API Key（当前在 Dialog 内，独立页面延后）
 - [ ] **Phase 2.1** 用户管理

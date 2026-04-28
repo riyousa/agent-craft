@@ -663,9 +663,10 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
     );
   }
 
-  // Create/Edit view — wrapped in v3 chrome (PageHeader + PageTitle).
+  // Create/Edit view — v3 chrome at 920px container width per design.
   // Body unchanged so existing AI helper, validation, built-in tools
   // card all keep working.
+  const skillRequiredTools = (formData.required_tools || []).length;
   return (
     <div className="flex h-full flex-col bg-background">
       <PageHeader
@@ -681,6 +682,20 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
               放弃
             </Button>
             <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                toast({
+                  title: '预览对话即将开放',
+                  description: '此入口尚未接通沙箱对话；当前先用「保存」后到主对话页测试。',
+                })
+              }
+              className="h-7 gap-1.5 px-3 text-[12px]"
+            >
+              <Play className="h-3.5 w-3.5" />
+              预览对话
+            </Button>
+            <Button
               size="sm"
               onClick={handleSave}
               disabled={invalidTools.length > 0 || validationErrors.length > 0}
@@ -694,15 +709,32 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
       />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl px-7 pt-6 pb-12">
-          <PageTitle
-            title={viewMode === 'create' ? '新建技能' : (formData.display_name || formData.name || '编辑技能')}
-            description={
-              viewMode === 'create'
-                ? '描述你想让 Agent 完成的工作流，用 AI 助手或手动配置 prompt 模板与依赖工具。'
-                : `技能标识：${formData.name}`
-            }
-          />
+        <div className="mx-auto w-full max-w-[920px] px-7 pt-6 pb-12">
+          <div className="mb-5 flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-foreground">
+                {viewMode === 'create'
+                  ? '新建技能'
+                  : (formData.display_name || formData.name || '编辑技能')}
+              </h1>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                {viewMode === 'create'
+                  ? '描述你想让 Agent 完成的工作流，用 AI 助手或手动配置 prompt 模板与依赖工具。'
+                  : (
+                    <>
+                      技能 · {skillRequiredTools} 个工具
+                      {formData.requires_approval && ' · 需审批'}
+                      {formData.name && ` · ${formData.name}`}
+                    </>
+                  )}
+              </p>
+            </div>
+            {viewMode === 'edit' && (
+              formData.enabled
+                ? <Pill tone="success" dot>已启用</Pill>
+                : <Pill tone="neutral" dot>已停用</Pill>
+            )}
+          </div>
 
       <div className="space-y-8">
         {/* AI Helper Section */}
