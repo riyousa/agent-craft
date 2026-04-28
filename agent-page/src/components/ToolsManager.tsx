@@ -45,7 +45,7 @@ import {
 } from './ui/dropdown-menu';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
-import { PageHeader, PageTitle, Toolbar, Pill, EmptyState } from './design';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2 } from './design';
 import { metricsFor, formatCalls } from '../mock/tool_metrics';
 
 type ViewMode = 'list' | 'create' | 'edit';
@@ -1243,26 +1243,40 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
         {/* Left pane — form body */}
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl px-7 pt-6 pb-12">
-            <PageTitle
-              title={viewMode === 'create' ? '新建工具' : (formData.display_name || formData.name || '编辑工具')}
-              description={
-                viewMode === 'create'
-                  ? '描述好你的 API，右侧 AI 助手可以从 cURL / 文档自动填表，也可以手动配置。'
-                  : `工具标识：${formData.name}`
-              }
-            />
+            {/* Meta row — icon tile + mono name + connection summary +
+                approval pill. Replaces the generic PageTitle for this
+                editor since the design wants a denser identity row. */}
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+                <Wrench className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-[16px] font-semibold tracking-tight text-foreground">
+                  {viewMode === 'create' ? '新建工具' : (formData.name || '编辑工具')}
+                </div>
+                <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
+                  {viewMode === 'create'
+                    ? '描述好你的 API，右侧 AI 助手可以从 cURL / 文档自动填表，也可以手动配置。'
+                    : (() => {
+                        const type = formData.execution?.type === 'mcp' ? 'MCP' : 'HTTP';
+                        const method = formData.execution?.config?.method?.toUpperCase() || '';
+                        const source = formData.source === 'admin_assigned' ? '全局工具' : '私有工具';
+                        return [type, method, source].filter(Boolean).join(' · ');
+                      })()}
+                </div>
+              </div>
+              {viewMode === 'edit' && formData.requires_approval && (
+                <Pill tone="warning" dot>需审批</Pill>
+              )}
+            </div>
 
-      <div className="space-y-8">
-        {/* Section 1: Basic Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle>基本信息</CardTitle>
-            <CardDescription className="flex items-start gap-2">
-              <Lightbulb className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>工具名称用于代码调用，只能包含字母、数字和下划线。调用指南会帮助AI理解何时使用这个工具。</span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
+      <div>
+        {/* Section 1: Basic Info — flat H2 layout per v3 design */}
+        <H2 first>基础信息</H2>
+        <p className="-mt-2 mb-4 text-[11.5px] text-muted-foreground">
+          工具名称用于代码调用，只能包含字母、数字和下划线。调用指南会帮助 AI 理解何时使用这个工具。
+        </p>
+        <div className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="name" className="flex items-center gap-2">
                 工具名称 (name) *
@@ -1344,12 +1358,11 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                 <Label htmlFor="enabled" className="font-normal">启用此工具</Label>
               </div>
             </div>
-          </CardContent>
-        </Card>
+        </div>
 
         {/* Section 2: Execution Config */}
         {formData.execution?.type === 'mcp' ? (
-          <Card>
+          <Card className="mt-6">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Server className="w-5 h-5" />
@@ -1392,26 +1405,26 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
             </CardContent>
           </Card>
         ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>执行配置</CardTitle>
-            <CardDescription className="space-y-2">
-              <div className="flex items-start gap-2">
-                <Link2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span>配置外部API的端点、认证方式和数据映射。所有配置支持动态占位符替换。</span>
-              </div>
-              <div className="text-xs mt-3 space-y-1">
-                <div><strong>占位符语法：</strong></div>
-                <div>1️⃣ <strong>环境变量</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">$&#123;变量名&#125;</code></div>
-                <div className="pl-6">• 示例：<code className="bg-muted px-1 py-0.5 rounded">$&#123;API_KEY&#125;</code></div>
-                <div>2️⃣ <strong>用户信息</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">$&#123;user.字段名&#125;</code></div>
-                <div className="pl-6">• 可用字段：id, username, name, email, role_level</div>
-                <div>3️⃣ <strong>输入参数</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">&#123;&#123;参数名&#125;&#125;</code></div>
-                <div className="pl-6">• 示例：<code className="bg-muted px-1 py-0.5 rounded">https://api.com/users/&#123;&#123;user_id&#125;&#125;/posts</code></div>
-              </div>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
+        <>
+        <H2>执行配置</H2>
+        <div className="-mt-2 mb-4 space-y-2 text-[11.5px] text-muted-foreground">
+          <div className="flex items-start gap-2">
+            <Link2 className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+            <span>配置外部 API 的端点、认证方式和数据映射。所有配置支持动态占位符替换。</span>
+          </div>
+          <details className="ml-5">
+            <summary className="cursor-pointer text-foreground/80 hover:text-foreground">查看占位符语法</summary>
+            <div className="mt-1 space-y-1">
+              <div>1️⃣ <strong>环境变量</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">$&#123;变量名&#125;</code></div>
+              <div className="pl-6">示例：<code className="bg-muted px-1 py-0.5 rounded">$&#123;API_KEY&#125;</code></div>
+              <div>2️⃣ <strong>用户信息</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">$&#123;user.字段名&#125;</code></div>
+              <div className="pl-6">可用字段：id, username, name, email, role_level</div>
+              <div>3️⃣ <strong>输入参数</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">&#123;&#123;参数名&#125;&#125;</code></div>
+              <div className="pl-6">示例：<code className="bg-muted px-1 py-0.5 rounded">https://api.com/users/&#123;&#123;user_id&#125;&#125;/posts</code></div>
+            </div>
+          </details>
+        </div>
+        <div className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="endpoint">API端点 *</Label>
               <Input
@@ -1825,20 +1838,17 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                 </div>
               </DrawerContent>
             </Drawer>
-          </CardContent>
-        </Card>
+        </div>
+        </>
         )}
 
         {/* Section 3: Parameters & Output Schema */}
-        <Card>
-          <CardHeader>
-            <CardTitle>参数与返回值</CardTitle>
-            <CardDescription className="flex items-start gap-2">
-              <ClipboardList className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>定义工具的输入参数和输出结构。参数会被AI自动识别和填充，输出结构帮助AI理解返回的数据格式。</span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-8">
+        <H2>参数与返回值</H2>
+        <p className="-mt-2 mb-4 flex items-start gap-2 text-[11.5px] text-muted-foreground">
+          <ClipboardList className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+          <span>定义工具的输入参数和输出结构。参数会被 AI 自动识别和填充，输出结构帮助 AI 理解返回的数据格式。</span>
+        </p>
+        <div className="space-y-8">
             {/* Input Parameters */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -1994,8 +2004,7 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                 <div className="text-center py-8 text-muted-foreground">暂无字段，点击"添加字段"创建</div>
               )}
             </div>
-          </CardContent>
-        </Card>
+        </div>
       </div>
           </div>
         </div>

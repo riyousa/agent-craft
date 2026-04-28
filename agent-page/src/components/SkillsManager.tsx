@@ -26,6 +26,7 @@ import {
   Search,
   MoreHorizontal,
   CheckCircle2,
+  X,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -44,8 +45,9 @@ import {
 } from './ui/dropdown-menu';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
-import { PageHeader, PageTitle, Toolbar, Pill, EmptyState } from './design';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2 } from './design';
 import { metricsFor as skillMetricsFor, formatRuns } from '../mock/skill_metrics';
+import { cn } from '../lib/utils';
 
 type ViewMode = 'list' | 'create' | 'edit';
 
@@ -804,12 +806,9 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
           </Card>
         </Collapsible>
 
-        {/* Basic Information */}
-        <Card>
-          <CardHeader>
-            <CardTitle>基础信息</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
+        {/* Basic Information — flat H2 layout */}
+        <H2>基础信息</H2>
+        <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="skill-name" className="flex items-center gap-2">
@@ -884,23 +883,14 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
               />
               <p className="text-sm text-muted-foreground">这段文字会帮助AI更好地理解和使用技能</p>
             </div>
-          </CardContent>
-        </Card>
+        </div>
 
-        {/* Workflow Template */}
-        <Card>
-          <CardHeader>
-            <CardTitle>工作流程模板</CardTitle>
-            <CardDescription className="space-y-2">
-              <span>支持占位符: {'{{input.xxx}}'}, {'{{tool:xxx(...)}}'}, {'{{result.xxx.yyy}}'}</span>
-              <div className="text-xs mt-2 space-y-1">
-                <div><code className="bg-muted px-1.5 py-0.5 rounded">{'{{input.param_name}}'}</code> - 引用输入参数</div>
-                <div><code className="bg-muted px-1.5 py-0.5 rounded">{'{{tool:tool_name(arg="value")}}'}</code> - 调用工具</div>
-                <div><code className="bg-muted px-1.5 py-0.5 rounded">{'{{result.tool_name.field}}'}</code> - 引用工具返回结果</div>
-              </div>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        {/* Workflow Template — flat H2 layout */}
+        <H2>工作流程模板</H2>
+        <div className="-mt-2 mb-4 space-y-1.5 text-[11.5px] text-muted-foreground">
+          <div>支持占位符 <code className="bg-muted px-1.5 py-0.5 rounded">{'{{input.xxx}}'}</code> · <code className="bg-muted px-1.5 py-0.5 rounded">{'{{tool:xxx(...)}}'}</code> · <code className="bg-muted px-1.5 py-0.5 rounded">{'{{result.xxx.yyy}}'}</code></div>
+        </div>
+        <div className="space-y-4">
             <Textarea
               value={formData.prompt_template || ''}
               onChange={(e) => {
@@ -924,23 +914,19 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
             <p className="text-xs text-muted-foreground text-right">
               {(formData.prompt_template || '').length} 字符
             </p>
-          </CardContent>
-        </Card>
+        </div>
 
-        {/* Approval Setting */}
-        <Card className={hasApprovalTools ? "border-chart-4/30" : ""}>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              {hasApprovalTools && <AlertCircle className="w-5 h-5 text-chart-4" />}
-              审批设置
-            </CardTitle>
-            <CardDescription>
-              {hasApprovalTools
-                ? '检测到依赖的工具中有需要审批的工具，请选择审批方式'
-                : '选择此技能是否需要在执行前进行审批'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        {/* Approval Setting — flat H2 layout */}
+        <H2>{hasApprovalTools ? '审批设置 · 检测到敏感工具' : '审批设置'}</H2>
+        <p className="-mt-2 mb-4 text-[11.5px] text-muted-foreground">
+          {hasApprovalTools
+            ? '检测到依赖的工具中有需要审批的工具，请选择审批方式'
+            : '选择此技能是否需要在执行前进行审批'}
+        </p>
+        <div className={cn(
+          'rounded-lg border p-4 space-y-3',
+          hasApprovalTools ? 'border-chart-4/30' : 'border-border',
+        )}>
             <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors hover:bg-accent">
               <input
                 type="radio"
@@ -981,8 +967,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                 </p>
               </div>
             </label>
-          </CardContent>
-        </Card>
+        </div>
 
         {/* Built-in (always-bound) tools — collapsed by default */}
         <Card className="border-primary/20">
@@ -1113,6 +1098,37 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
             </div>
           </CardContent>
         </Card>
+
+        {/* Starter prompts — 启动建议 per design spec.
+            Mock-only display (no persistence yet); shows up to four
+            example questions to seed the user when chatting with this
+            skill. Phase 4 backend gap registered. */}
+        <H2>启动建议</H2>
+        <p className="-mt-2 mb-4 text-[11.5px] text-muted-foreground">
+          这些示例问题会出现在对话页的「快捷开场」区，帮助用户快速触发本技能。
+        </p>
+        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+          {[
+            '查一下订单 ord_8821 的退款状态',
+            '今天有多少订单状态是异常的？',
+            '把这个订单退款 200 元，原因是商品质量问题',
+            '导出本周所有取消订单到表格',
+          ].map((s, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-[12.5px] text-foreground"
+            >
+              <span className="w-4 shrink-0 font-mono text-[10px] text-muted-foreground">
+                {String(i + 1).padStart(2, '0')}
+              </span>
+              <span className="flex-1 truncate">{s}</span>
+              <X className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-muted-foreground/70">
+          启动建议存储能力即将开放，目前仅作展示。
+        </p>
 
         {/* Advanced Configuration */}
         <Card>

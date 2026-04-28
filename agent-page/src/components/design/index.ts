@@ -14,3 +14,4 @@ export { PageTitle } from './PageTitle';
 export { Toolbar } from './Toolbar';
 export { StatCard } from './StatCard';
 export { EmptyState } from './EmptyState';
+export { H2 } from './H2';
