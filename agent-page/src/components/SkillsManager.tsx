@@ -711,7 +711,10 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
       />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[920px] px-7 pt-6 pb-12">
+        {/* Full-bleed page body — content fills the entire main pane.
+            No max-w cap so the form expands to whatever the page
+            offers, matching the v3 layout used elsewhere. */}
+        <div className="w-full px-7 pt-6 pb-12">
           <div className="mb-5 flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-foreground">

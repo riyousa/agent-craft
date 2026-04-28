@@ -1241,9 +1241,11 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
       />
 
       <div className="flex flex-1 min-h-0">
-        {/* Left pane — form body */}
+        {/* Left pane — form body. Fills the entire flex-1 column;
+            the right AI aside takes its own 380px so we don't need
+            an additional inner cap. */}
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-3xl px-7 pt-6 pb-12">
+          <div className="w-full px-7 pt-6 pb-12">
             {/* Meta row — icon tile + mono name + connection summary +
                 approval pill. Replaces the generic PageTitle for this
                 editor since the design wants a denser identity row. */}
