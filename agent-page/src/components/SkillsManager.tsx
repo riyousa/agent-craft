@@ -23,6 +23,9 @@ import {
   Play,
   Lightbulb,
   Zap,
+  Search,
+  MoreHorizontal,
+  CheckCircle2,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -32,8 +35,17 @@ import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Separator } from './ui/separator';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from './ui/table';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState } from './design';
+import { metricsFor as skillMetricsFor, formatRuns } from '../mock/skill_metrics';
 
 type ViewMode = 'list' | 'create' | 'edit';
 
@@ -81,6 +93,11 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
   const [tools, setTools] = useState<UserTool[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState<'time-desc' | 'time-asc' | 'name'>('time-desc');
+  // List-view filter state — purely client-side until the backend
+  // exposes server-side filtering hooks (Phase 4).
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'user_created' | 'admin_assigned'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled' | 'approval'>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedSkill, setSelectedSkill] = useState<UserSkill | null>(null);
 
@@ -401,143 +418,291 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
   });
 
   if (viewMode === 'list') {
-    return (
-      <div className="container mx-auto p-6 max-w-7xl">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            {onBack && (
-              <>
-                <Button variant="ghost" size="sm" onClick={onBack}>← 返回</Button>
-                <Separator orientation="vertical" className="h-4" />
-              </>
-            )}
-            <p className="text-sm text-muted-foreground">
-              共 {skills.length} 个技能
-            </p>
-            <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
-              <SelectTrigger className="w-32 h-8"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="time-desc">最新优先</SelectItem>
-                <SelectItem value="time-asc">最早优先</SelectItem>
-                <SelectItem value="name">按名称</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Button onClick={handleCreate}>
-            <Plus className="w-4 h-4 mr-2" />
-            创建技能
-          </Button>
-        </div>
+    const q = searchQuery.trim().toLowerCase();
+    const visibleSkills = sortedSkills.filter((s) => {
+      if (q) {
+        const hay = `${s.name} ${s.display_name || ''} ${s.description || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (sourceFilter !== 'all') {
+        const src = s.source || 'user_created';
+        if (sourceFilter !== src) return false;
+      }
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'enabled' && !s.enabled) return false;
+        if (statusFilter === 'disabled' && s.enabled) return false;
+        if (statusFilter === 'approval' && !s.requires_approval) return false;
+      }
+      return true;
+    });
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {skills.length === 0 ? (
-            <Card className="col-span-full">
-              <CardContent className="flex flex-col items-center justify-center py-16">
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                  <Zap className="w-8 h-8 text-muted-foreground" />
-                </div>
-                <h3 className="text-xl font-semibold mb-2">暂无技能</h3>
-                <p className="text-muted-foreground mb-4">点击"创建技能"按钮添加您的第一个技能</p>
-                <Button onClick={handleCreate}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  创建技能
+    const adminCount = skills.filter((s) => s.source === 'admin_assigned').length;
+    const userCount = skills.filter((s) => s.source === 'user_created' || !s.source).length;
+
+    return (
+      <div className="flex h-full flex-col bg-background">
+        <PageHeader
+          breadcrumb={['工作区', '技能']}
+          subtitle={`${adminCount} 全局 · ${userCount} 私有`}
+          actions={
+            onBack ? (
+              <Button variant="ghost" size="sm" onClick={onBack} className="h-7 px-2 text-[12px]">
+                ← 返回
+              </Button>
+            ) : undefined
+          }
+        />
+
+        <div className="flex-1 overflow-y-auto">
+          <div className="w-full px-7 pt-6 pb-12">
+            <PageTitle
+              title="技能"
+              description="技能把多个工具按既定流程编排成 Agent 可一键调用的能力。可以为不同业务场景沉淀工作流，附带 prompt 模板和审批策略。"
+              actions={
+                <Button size="sm" onClick={handleCreate} className="gap-1.5">
+                  <Plus className="h-3.5 w-3.5" />
+                  新建技能
                 </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            sortedSkills.map((skill) => (
-              <Card
-                key={skill.id}
-                className={`flex flex-col transition-all hover:shadow-md ${!skill.enabled ? 'opacity-60' : ''}`}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${skill.enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                        <Zap className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-base">{skill.display_name}</CardTitle>
-                        <code className="text-xs text-muted-foreground">{skill.name}</code>
-                      </div>
-                    </div>
-                  </div>
-                  <CardDescription className="mt-2 line-clamp-2">{skill.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="flex-1 pb-3">
-                  <div className="flex gap-2 flex-wrap mb-3">
-                    <Badge variant={skill.source === 'user_created' ? 'default' : 'secondary'}>
-                      {skill.source === 'user_created' ? '自建' : '系统'}
-                    </Badge>
-                    <Badge variant="outline">{skill.category}</Badge>
-                    {!skill.enabled && <Badge variant="outline">已停用</Badge>}
-                    {skill.requires_approval && (
-                      <Badge variant="outline" className="border-chart-4/50 text-chart-4">
-                        需审批
-                      </Badge>
-                    )}
-                  </div>
-                  {skill.required_tools && skill.required_tools.length > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      依赖 {skill.required_tools.length} 个工具
-                    </p>
-                  )}
-                </CardContent>
-                <Separator />
-                <div className="flex items-center justify-end gap-1 p-3">
-                  <Button variant="ghost" size="sm" onClick={() => handleToggleEnabled(skill)}>
-                    {skill.enabled ? <Pause className="w-4 h-4 mr-1.5" /> : <Play className="w-4 h-4 mr-1.5" />}
-                    {skill.enabled ? '停用' : '启用'}
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleEdit(skill)}>
-                    <Edit2 className="w-4 h-4 mr-1.5" />
-                    编辑
-                  </Button>
-                  {(isAdminMode || skill.source === 'user_created') && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(skill)}
-                      className="text-chart-5 hover:text-chart-5"
-                    >
-                      <Trash2 className="w-4 h-4 mr-1.5" />
-                      删除
+              }
+            />
+
+            <Toolbar>
+              <div className="relative flex-1 min-w-[240px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="搜索技能名、描述…"
+                  className="h-8 pl-8 text-[12.5px]"
+                />
+              </div>
+              <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as typeof sourceFilter)}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部来源</SelectItem>
+                  <SelectItem value="user_created">私有</SelectItem>
+                  <SelectItem value="admin_assigned">全局</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部状态</SelectItem>
+                  <SelectItem value="enabled">已启用</SelectItem>
+                  <SelectItem value="disabled">已停用</SelectItem>
+                  <SelectItem value="approval">需审批</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="time-desc">最新优先</SelectItem>
+                  <SelectItem value="time-asc">最早优先</SelectItem>
+                  <SelectItem value="name">按名称</SelectItem>
+                </SelectContent>
+              </Select>
+            </Toolbar>
+
+            {visibleSkills.length === 0 ? (
+              skills.length === 0 ? (
+                <EmptyState
+                  icon={<Zap className="h-5 w-5" />}
+                  title="暂无技能"
+                  description="点击「新建技能」搭一个工作流。技能可以串联多个工具完成更复杂的任务。"
+                  action={
+                    <Button size="sm" onClick={handleCreate} className="gap-1.5">
+                      <Plus className="h-3.5 w-3.5" />
+                      新建技能
                     </Button>
-                  )}
-                </div>
-              </Card>
-            ))
-          )}
+                  }
+                />
+              ) : (
+                <EmptyState
+                  title="没有匹配的技能"
+                  description="调整筛选条件再试一次。"
+                />
+              )
+            ) : (
+              <div className="rounded-lg border border-border bg-card overflow-hidden">
+                <Table className="table-fixed">
+                  <colgroup>
+                    <col className="w-[42%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[4%]" />
+                  </colgroup>
+                  <TableHeader>
+                    <TableRow className="border-b-border bg-muted/40 hover:bg-muted/40">
+                      <TableHead className="h-9 px-3">技能</TableHead>
+                      <TableHead className="h-9 px-3">来源</TableHead>
+                      <TableHead className="h-9 px-3 text-right">工具</TableHead>
+                      <TableHead className="h-9 px-3">状态</TableHead>
+                      <TableHead className="h-9 px-3 text-right">7天运行</TableHead>
+                      <TableHead className="h-9 px-3 text-right">P95</TableHead>
+                      <TableHead className="h-9 px-3">更新</TableHead>
+                      <TableHead className="h-9 px-3"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {visibleSkills.map((s) => {
+                      const m = skillMetricsFor(s.name, !!s.enabled);
+                      const updated = s.created_at
+                        ? new Date(s.created_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+                        : '——';
+                      const sourceLabel = s.source === 'admin_assigned' ? '全局' : '私有';
+                      return (
+                        <TableRow
+                          key={s.id}
+                          onClick={() => handleEdit(s)}
+                          className="cursor-pointer"
+                        >
+                          <TableCell className="min-w-0 px-3 py-1.5">
+                            <div className="flex min-w-0 flex-col">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate text-[13px] font-medium text-foreground">
+                                  {s.display_name || s.name}
+                                </span>
+                                {s.requires_approval && <Pill tone="warning" dot>需审批</Pill>}
+                              </div>
+                              <span className="truncate text-[11.5px] leading-tight text-muted-foreground">
+                                {s.description || s.name}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            <Pill tone="outline">{sourceLabel}</Pill>
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
+                            {(s.required_tools || []).length}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            {s.enabled ? (
+                              s.requires_approval ? (
+                                <Pill tone="warning" dot>需审批</Pill>
+                              ) : (
+                                <Pill tone="success" dot>已启用</Pill>
+                              )
+                            ) : (
+                              <Pill tone="neutral" dot>已停用</Pill>
+                            )}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
+                            {formatRuns(m.runs_7d)}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
+                            {m.p95}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-[12px] text-muted-foreground whitespace-nowrap">
+                            {updated}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                                >
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                                <DropdownMenuItem onClick={() => handleEdit(s)}>
+                                  <Edit2 className="mr-2 h-3.5 w-3.5" />
+                                  编辑
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleToggleEnabled(s)}>
+                                  {s.enabled ? (
+                                    <>
+                                      <Pause className="mr-2 h-3.5 w-3.5" />
+                                      停用
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play className="mr-2 h-3.5 w-3.5" />
+                                      启用
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                                {(isAdminMode || s.source === 'user_created' || !s.source) && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => handleDelete(s)}
+                                      className="text-destructive focus:text-destructive"
+                                    >
+                                      <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                      删除
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
         </div>
         <ConfirmDialog />
       </div>
     );
   }
 
-  // Create/Edit view
+  // Create/Edit view — wrapped in v3 chrome (PageHeader + PageTitle).
+  // Body unchanged so existing AI helper, validation, built-in tools
+  // card all keep working.
   return (
-    <div className="container mx-auto p-6 max-w-5xl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={handleCancel}>
-            ← 返回
-          </Button>
-          <Separator orientation="vertical" className="h-4" />
-          <span className="text-sm text-muted-foreground">
-            {viewMode === 'create' ? '创建新技能' : `编辑 · ${formData.display_name || formData.name}`}
-          </span>
-        </div>
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={handleCancel}>取消</Button>
-          <Button
-            onClick={handleSave}
-            disabled={invalidTools.length > 0 || validationErrors.length > 0}
-          >
-            {viewMode === 'create' ? '创建' : '保存'}
-          </Button>
-        </div>
-      </div>
+    <div className="flex h-full flex-col bg-background">
+      <PageHeader
+        breadcrumb={
+          viewMode === 'create'
+            ? ['工作区', '技能', '新建']
+            : ['工作区', '技能', formData.name || '编辑']
+        }
+        subtitle={viewMode === 'create' ? '新建技能' : '编辑模式'}
+        actions={
+          <>
+            <Button variant="ghost" size="sm" onClick={handleCancel} className="h-7 px-2 text-[12px]">
+              放弃
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={invalidTools.length > 0 || validationErrors.length > 0}
+              className="h-7 gap-1.5 px-3 text-[12px]"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {viewMode === 'create' ? '创建并保存' : '保存'}
+            </Button>
+          </>
+        }
+      />
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-5xl px-7 pt-6 pb-12">
+          <PageTitle
+            title={viewMode === 'create' ? '新建技能' : (formData.display_name || formData.name || '编辑技能')}
+            description={
+              viewMode === 'create'
+                ? '描述你想让 Agent 完成的工作流，用 AI 助手或手动配置 prompt 模板与依赖工具。'
+                : `技能标识：${formData.name}`
+            }
+          />
 
       <div className="space-y-8">
         {/* AI Helper Section */}
@@ -966,6 +1131,8 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
             </CardContent>
           )}
         </Card>
+      </div>
+        </div>
       </div>
       <ConfirmDialog />
     </div>

@@ -229,8 +229,8 @@ agent-page/src/mock/
 - [x] **Phase 1.1** 对话历史
 - [x] **Phase 1.2** 工具列表
 - [x] **Phase 1.3** 工具编辑器（chrome 已对齐；双栏 AI 助手布局延后）
-- [ ] **Phase 1.4** 技能列表
-- [ ] **Phase 1.5** 技能编辑器
+- [x] **Phase 1.4** 技能列表
+- [x] **Phase 1.5** 技能编辑器（chrome 已对齐）
 - [ ] **Phase 1.6** 文件管理
 - [ ] **Phase 1.7** API Key
 - [ ] **Phase 2.1** 用户管理
