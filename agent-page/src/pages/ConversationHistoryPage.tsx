@@ -327,19 +327,19 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
           ) : (
             <div className="rounded-lg border border-border bg-card overflow-hidden">
               <Table className="table-fixed">
-                {/* Column widths follow the v3 design table:
-                    ☆ 44 / 会话 auto (capped via inner div) / 模型 200 /
-                    工具·消息 168 / TOKENS 110 / 更新于 150 / ⋯ 44.
-                    Widening the metric columns keeps the auto title
-                    column from ballooning on wide displays. */}
+                {/* Percentage-based columns: 会话 = 50%, the other six
+                    columns split the remaining 50% in roughly the same
+                    ratio they had as fixed pixels. Sum totals 100% so
+                    the table fills its container at any viewport width
+                    without an "auto" column ballooning. */}
                 <colgroup>
-                  <col className="w-11" />
-                  <col />
-                  <col className="w-[200px]" />
-                  <col className="w-[168px]" />
-                  <col className="w-[110px]" />
-                  <col className="w-[150px]" />
-                  <col className="w-11" />
+                  <col className="w-[3%]" />
+                  <col className="w-[50%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[3%]" />
                 </colgroup>
                 <TableHeader>
                   <TableRow className="border-b-border bg-muted/40 hover:bg-muted/40">
@@ -383,12 +383,10 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                         </button>
                       </TableCell>
                       <TableCell className="min-w-0 px-3 py-1.5">
-                        {/* Cap the visible content of the title cell so
-                            it doesn't read as a giant whitespace block on
-                            wide monitors. The cell itself remains the
-                            auto-flex column; trailing space within the
-                            cell is intentional (table padding). */}
-                        <div className="flex min-w-0 max-w-[520px] flex-col">
+                        {/* Inner div now flows freely — the parent col is
+                            sized to 50% so we don't need an artificial
+                            max-width cap. */}
+                        <div className="flex min-w-0 flex-col">
                           <div className="flex min-w-0 items-center gap-2">
                             <span className="truncate text-[13px] font-medium text-foreground">
                               {c.title || '未命名对话'}
