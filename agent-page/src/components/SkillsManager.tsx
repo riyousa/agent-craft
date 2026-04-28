@@ -46,7 +46,7 @@ import {
 } from './ui/dropdown-menu';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
-import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field } from './design';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field, AutoGrowTextarea } from './design';
 import { metricsFor as skillMetricsFor, formatRuns } from '../mock/skill_metrics';
 import { cn } from '../lib/utils';
 
@@ -791,7 +791,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
       </div>
 
       <div className="flex flex-col gap-2 border-t border-border p-3">
-        <Textarea
+        <AutoGrowTextarea
           value={aiDescription}
           onChange={(e) => setAiDescription(e.target.value)}
           placeholder={
@@ -799,9 +799,10 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
               ? '描述你想让 Agent 完成的业务流程…'
               : '描述要改的地方，例如：把审批阈值改成 500 元'
           }
-          rows={3}
           disabled={aiGenerating}
-          className="min-h-[68px] resize-none bg-background text-[12px] leading-relaxed"
+          minHeight={68}
+          maxHeight={240}
+          className="bg-background text-[12px] leading-relaxed"
         />
         <div className="flex items-center gap-2">
           <Pill tone="outline" mono>
@@ -1076,6 +1077,9 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
           <div>支持占位符 <code className="bg-muted px-1.5 py-0.5 rounded">{'{{input.xxx}}'}</code> · <code className="bg-muted px-1.5 py-0.5 rounded">{'{{tool:xxx(...)}}'}</code> · <code className="bg-muted px-1.5 py-0.5 rounded">{'{{result.xxx.yyy}}'}</code></div>
         </div>
         <div className="space-y-4">
+            {/* prompt_template lives on a generous fixed-height
+                editor — workflow markup is naturally long-form, and
+                resize-y lets the user pull it taller when needed. */}
             <Textarea
               value={formData.prompt_template || ''}
               onChange={(e) => {
@@ -1083,8 +1087,8 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                 if (validationErrors.length > 0) setValidationErrors([]);
               }}
               placeholder={`步骤1: 查询用户信息\n{{tool:query_database(table="users", filter="id={{input.user_id}}")}}\n\n步骤2: 分析行为\n基于结果 {{result.query_database.username}} 进行分析...`}
-              className="font-mono text-sm resize-none"
-              rows={12}
+              className="min-h-[420px] resize-y font-mono text-[12.5px] leading-relaxed"
+              rows={20}
             />
             {validationErrors.length > 0 && (
               <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">

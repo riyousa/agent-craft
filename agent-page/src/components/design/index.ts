@@ -16,3 +16,4 @@ export { StatCard } from './StatCard';
 export { EmptyState } from './EmptyState';
 export { H2 } from './H2';
 export { Field } from './Field';
+export { AutoGrowTextarea } from './AutoGrowTextarea';

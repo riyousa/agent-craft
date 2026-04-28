@@ -46,7 +46,7 @@ import {
 } from './ui/dropdown-menu';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
-import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field } from './design';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field, AutoGrowTextarea } from './design';
 import { metricsFor, formatCalls } from '../mock/tool_metrics';
 import { cn } from '../lib/utils';
 
@@ -1327,7 +1327,7 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
       </div>
 
       <div className="flex flex-col gap-2 border-t border-border p-3">
-        <Textarea
+        <AutoGrowTextarea
           value={aiDescription}
           onChange={(e) => setAiDescription(e.target.value)}
           placeholder={
@@ -1335,9 +1335,10 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
               ? '贴 cURL / 文档片段，或描述这个 API 该怎么调用…'
               : '描述要改的地方，例如：把鉴权改成 Bearer Token，token 走 env'
           }
-          rows={3}
           disabled={aiLoading}
-          className="min-h-[68px] resize-none bg-background font-mono text-[12px] leading-relaxed"
+          minHeight={68}
+          maxHeight={220}
+          className="bg-background font-mono text-[12px] leading-relaxed"
         />
         <div className="flex items-center gap-2">
           <Pill tone="outline" mono>
