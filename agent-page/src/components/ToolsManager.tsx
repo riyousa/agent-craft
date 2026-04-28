@@ -1205,24 +1205,44 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
     );
   }
 
-  // Form view (Create/Edit)
+  // Form view (Create/Edit) — wrapped in v3 design chrome.
+  // The body is unchanged; only the header / page-title row is
+  // promoted to PageHeader + PageTitle so it matches the rest of the
+  // redesigned pages. A two-pane "AI assistant on the right" layout
+  // is documented in design_update.md Phase 1.3 as a follow-up; the
+  // existing inline collapsible AI helper stays put for now.
   return (
-    <div className="container mx-auto p-6 max-w-5xl">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={handleCancel}>
-            ← 返回
-          </Button>
-          <Separator orientation="vertical" className="h-4" />
-          <span className="text-sm text-muted-foreground">
-            {viewMode === 'create' ? '创建新工具' : `编辑 · ${formData.display_name || formData.name}`}
-          </span>
-        </div>
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={handleCancel}>取消</Button>
-          <Button onClick={handleSave}>{viewMode === 'create' ? '创建' : '保存'}</Button>
-        </div>
-      </div>
+    <div className="flex h-full flex-col bg-background">
+      <PageHeader
+        breadcrumb={
+          viewMode === 'create'
+            ? ['工作区', '工具', '新建']
+            : ['工作区', '工具', formData.name || '编辑']
+        }
+        subtitle={viewMode === 'create' ? '新建工具' : '编辑模式'}
+        actions={
+          <>
+            <Button variant="ghost" size="sm" onClick={handleCancel} className="h-7 px-2 text-[12px]">
+              放弃
+            </Button>
+            <Button size="sm" onClick={handleSave} className="h-7 gap-1.5 px-3 text-[12px]">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {viewMode === 'create' ? '创建并保存' : '保存'}
+            </Button>
+          </>
+        }
+      />
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-5xl px-7 pt-6 pb-12">
+          <PageTitle
+            title={viewMode === 'create' ? '新建工具' : (formData.display_name || formData.name || '编辑工具')}
+            description={
+              viewMode === 'create'
+                ? '通过表单或下方的 AI 助手快速搭建一个新工具。HTTP / SQL / JS 都可以注册成 Agent 可调用的能力。'
+                : `工具标识：${formData.name}`
+            }
+          />
 
       {/* AI Assistant Section */}
       <Collapsible defaultOpen={false} className="mb-8">
@@ -2036,6 +2056,8 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
             </div>
           </CardContent>
         </Card>
+      </div>
+        </div>
       </div>
       <ConfirmDialog />
     </div>
