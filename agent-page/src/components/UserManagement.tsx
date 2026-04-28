@@ -359,8 +359,23 @@ export const UserManagement: React.FC = () => {
                             <Pill tone="outline">L1 用户</Pill>
                           )}
                         </TableCell>
-                        <TableCell className="px-3 py-1.5 text-[12px] text-muted-foreground whitespace-nowrap">
-                          {usage.team}
+                        <TableCell className="px-3 py-1.5">
+                          {/* "团队" reads from the user's own tags so
+                              admins keep one source of truth. Multiple
+                              tags render as compact outline pills; no
+                              tags falls back to a muted dash. */}
+                          {u.tags && u.tags.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {u.tags.slice(0, 2).map((t) => (
+                                <Pill key={t} tone="outline">{t}</Pill>
+                              ))}
+                              {u.tags.length > 2 && (
+                                <Pill tone="outline">+{u.tags.length - 2}</Pill>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[12px] text-muted-foreground">——</span>
+                          )}
                         </TableCell>
                         <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-foreground">
                           {fmtTokens(usage.monthly_tokens)}

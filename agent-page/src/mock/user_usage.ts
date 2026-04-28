@@ -6,8 +6,6 @@
  */
 
 export interface UserUsage {
-  /** Mock team attribution. */
-  team: string;
   /** Tokens used this calendar month. */
   monthly_tokens: number;
   /** ¥ cost this month, mirrors monthly_tokens via a fixed rate. */
@@ -15,8 +13,6 @@ export interface UserUsage {
   /** Roughly how long since the user last interacted, in seconds. */
   last_active_seconds: number;
 }
-
-const TEAMS = ['平台', '运营', '客服', '财务', '仓储', '研发', '产品'];
 
 function hash(s: string): number {
   let h = 2166136261;
@@ -32,9 +28,8 @@ export function usageFor(
   isActive: boolean = true,
 ): UserUsage {
   const seed = hash(String(userId));
-  const team = TEAMS[seed % TEAMS.length];
   if (!isActive) {
-    return { team, monthly_tokens: 0, monthly_spend_cny: 0, last_active_seconds: 60 * 60 * 24 * 30 };
+    return { monthly_tokens: 0, monthly_spend_cny: 0, last_active_seconds: 60 * 60 * 24 * 30 };
   }
   // Distribution biased to mid-range (10k–500k).
   const monthly_tokens = 8000 + (seed % 920_000);
@@ -51,7 +46,7 @@ export function usageFor(
           : seed % 5 === 3
             ? 86400 + (seed % 86400) // 1–2 days
             : 86400 * 3 + (seed % (86400 * 14)); // 3–17 days
-  return { team, monthly_tokens, monthly_spend_cny, last_active_seconds };
+  return { monthly_tokens, monthly_spend_cny, last_active_seconds };
 }
 
 export function formatTokens(n: number): string {
