@@ -2025,30 +2025,100 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
         <aside className="hidden w-[380px] flex-shrink-0 flex-col border-l border-border bg-muted/30 md:flex">
           <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
             <Sparkles className="h-3.5 w-3.5 text-foreground" />
-            <span className="text-[12.5px] font-semibold text-foreground">AI 助手</span>
+            <span className="text-[12.5px] font-semibold text-foreground">AI 配置助手</span>
             <Pill tone="info" className="ml-auto">BETA</Pill>
           </header>
 
           <div className="flex-1 overflow-y-auto p-3.5 flex flex-col gap-3">
-            <div className="rounded-lg bg-muted px-3 py-2.5 text-[12.5px] leading-relaxed text-foreground">
-              我可以帮你：从 cURL / OpenAPI 生成工具定义、补全参数描述、检查参数校验是否齐全。
+            {/* Intro — what the helper actually does, not a generic chat. */}
+            <div className="rounded-lg border border-border bg-background px-3 py-2.5 text-[12.5px] leading-relaxed text-foreground">
+              贴 <strong>cURL</strong>、<strong>OpenAPI 片段</strong> 或一段中文描述。我会一次性填好<strong>端点 / 方法 / 鉴权 / 参数 schema / 响应映射</strong>，左侧表单立即更新，你审一遍就能保存。
+            </div>
+
+            <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+              示例模板（点击填入）
             </div>
 
             <div className="flex flex-col gap-2">
-              {[
-                { label: '从 cURL 创建', seed: 'curl -X POST https://example.com/api/foo \\\n  -H "Authorization: Bearer ${API_TOKEN}" \\\n  -d \'{"key":"value"}\'\n请基于上面的 curl 生成工具定义。' },
-                { label: '检查参数描述质量', seed: '请检查当前工具的参数描述是否清晰、完整，给出建议。' },
-                { label: '生成 3 条测试用例', seed: '请基于当前工具配置生成 3 条覆盖正常 / 边界 / 异常的测试用例。' },
-                { label: '推荐审批策略', seed: '基于这个工具的副作用，推荐合适的审批策略和阈值。' },
-              ].map((s, i) => (
+              {(
+                viewMode === 'create'
+                  ? [
+                      {
+                        label: '从 cURL 一键生成',
+                        sub: '复制实际的 curl 命令，AI 解析 method / URL / headers / body',
+                        seed:
+                          "curl -X POST 'https://erp.example.com/api/v2/refunds' \\\n" +
+                          "  -H 'Authorization: Bearer ${ERP_API_TOKEN}' \\\n" +
+                          "  -H 'Content-Type: application/json' \\\n" +
+                          "  -d '{\n" +
+                          '    "order_id": "ord_8821",\n' +
+                          '    "amount": 1280,\n' +
+                          '    "reason": "商品质量问题"\n' +
+                          "  }'",
+                      },
+                      {
+                        label: '从 API 文档片段',
+                        sub: '粘贴接口文档的请求 / 响应说明，AI 抽出参数表',
+                        seed:
+                          'POST /api/v2/refunds — 创建退款单\n\n' +
+                          '请求体 (JSON)：\n' +
+                          '  order_id  string   必填  订单号，必须以 ord_ 开头\n' +
+                          '  amount    number   必填  退款金额，单位元\n' +
+                          '  reason    string   可选  退款原因，会写入审计日志\n\n' +
+                          '响应：\n' +
+                          '  refund_id  string  退款单 ID\n' +
+                          '  status     string  pending | processing | done\n\n' +
+                          '鉴权：Bearer Token，env=ERP_API_TOKEN',
+                      },
+                      {
+                        label: '用中文描述',
+                        sub: '直接说人话，AI 自己推断字段类型 / 必填 / 默认值',
+                        seed:
+                          '需要一个查询用户订单的工具。调用 https://erp.example.com/api/v2/users/{user_id}/orders（GET）。' +
+                          'user_id 必填走路径，days 可选走 query（默认 7，最大 90）。' +
+                          '鉴权用 ${ERP_API_TOKEN} 的 Bearer Token。响应是 orders 数组，每条含 id / amount / status 三个字段。',
+                      },
+                    ]
+                  : [
+                      {
+                        label: '增加一个参数',
+                        sub: '描述新字段，AI 把它合并进现有 input_schema',
+                        seed:
+                          '在现有参数基础上加一个 limit 字段：integer 类型，最大 100，默认 20，描述"返回结果的最大条数"。',
+                      },
+                      {
+                        label: '修改鉴权方式',
+                        sub: 'AI 重写 execution.config 里的 auth 部分',
+                        seed:
+                          '把鉴权从当前方式改成 Bearer Token，token 走环境变量 ${ERP_API_TOKEN}。其他字段保持不变。',
+                      },
+                      {
+                        label: '补全参数描述',
+                        sub: 'AI 给每个 input/output 字段补一段给模型看的说明',
+                        seed:
+                          '当前每个参数的描述太简单，请基于工具用途补全，强调"何时该传、不传时的行为、取值范围或格式约束"。',
+                      },
+                      {
+                        label: '换一个端点',
+                        sub: '描述新端点，AI 调整 URL / method / 参数映射',
+                        seed:
+                          '把端点从当前的 v2 切到 v3：URL 改成 https://erp.example.com/api/v3/refunds，method 不变，新增一个必填的 idempotency_key（string）走 header。',
+                      },
+                    ]
+              ).map((s, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => setAiDescription(s.seed)}
-                  className="flex h-8 items-center gap-2 rounded-md border border-border bg-background px-3 text-left text-[12.5px] text-foreground transition-colors hover:bg-accent"
+                  className="flex flex-col gap-0.5 rounded-md border border-border bg-background px-3 py-2 text-left transition-colors hover:bg-accent"
                 >
-                  <Sparkles className="h-3 w-3 text-muted-foreground" />
-                  {s.label}
+                  <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+                    <Sparkles className="h-3 w-3 text-muted-foreground" />
+                    {s.label}
+                  </span>
+                  <span className="pl-[18px] text-[11px] leading-snug text-muted-foreground">
+                    {s.sub}
+                  </span>
                 </button>
               ))}
             </div>
@@ -2067,17 +2137,19 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
               onChange={(e) => setAiDescription(e.target.value)}
               placeholder={
                 viewMode === 'create'
-                  ? '问问 AI… 例如：把支付接口的 cURL 转成工具'
-                  : '问问 AI… 例如：把这个工具改成支持批量退款'
+                  ? '贴 cURL / 文档片段，或描述这个 API 该怎么调用…'
+                  : '描述要改的地方，例如：把鉴权改成 Bearer Token，token 走 env'
               }
-              rows={2}
+              rows={3}
               disabled={aiLoading}
-              className="min-h-[44px] resize-none bg-background text-[12.5px]"
+              className="min-h-[68px] resize-none bg-background font-mono text-[12px] leading-relaxed"
             />
             <div className="flex items-center gap-2">
-              <Pill tone="outline" mono>{viewMode === 'create' ? '生成' : '优化'}</Pill>
+              <Pill tone="outline" mono>
+                {viewMode === 'create' ? '从描述生成' : '在现有配置上修改'}
+              </Pill>
               <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">
-                {aiLoading ? '处理中…' : `${aiDescription.length} 字`}
+                {aiLoading ? '解析中…' : `${aiDescription.length} 字`}
               </span>
               <Button
                 size="sm"
@@ -2086,9 +2158,14 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                 className="h-7 gap-1 px-2.5 text-[12px]"
               >
                 {aiLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                {aiLoading ? '生成中' : (viewMode === 'create' ? '自动生成' : 'AI 优化')}
+                {aiLoading ? '解析中' : (viewMode === 'create' ? '生成配置' : '应用修改')}
               </Button>
             </div>
+            <p className="font-mono text-[10px] leading-relaxed text-muted-foreground">
+              {viewMode === 'create'
+                ? '生成后会立即填到左侧表单；你可以再手动调整。'
+                : '会保留工具名 / 启用状态等元数据，只改你描述的部分。'}
+            </p>
           </div>
         </aside>
       </div>
