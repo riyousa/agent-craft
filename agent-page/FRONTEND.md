@@ -51,6 +51,24 @@ import { userApi } from '../api/user';
 const tools = await userApi.listTools();
 ```
 
+### 模型能力门控（capability gating）
+
+对话相关 UI 不应假设所有模型都能用同一组功能。`UserVisibleModel` 上声明了 `supports_reasoning`、`supports_file_upload` 等布尔位（参见 `api/user.ts`），后端按 provider 默认值 + 模型 `extra_config` 覆盖好后下发。
+
+页面侧的写法是按当前选中模型推导 memo，再用条件渲染包住对应控件：
+
+```tsx
+const currentModelSupportsFileUpload = useMemo(() => {
+  const m = availableModels.find(x => x.name === selectedModel);
+  if (!m) return true;            // 列表未加载完时不要闪一下
+  return !!m.supports_file_upload;
+}, [availableModels, selectedModel]);
+
+{currentModelSupportsFileUpload && <Popover>...</Popover>}
+```
+
+新增能力位时：(1) 后端在 `ProviderSpec` 加字段并在 `UserVisibleModel`/`admin_models.py` 暴露；(2) 前端在 `UserVisibleModel` 类型里追加；(3) 在调用方按上面的 memo 模式做条件渲染。**禁止**把能力判断硬编码到 provider 名（`provider === 'qwen'`）—— admin 可能随时给同一 provider 的不同模型开关不同功能。
+
 ### 组件复用模式
 
 工具/技能管理组件通过 API 适配器支持用户模式和管理员模式：

@@ -32,6 +32,21 @@ async def super_endpoint(admin: User = Depends(require_super_admin)): ...
 
 **超级管理员权限只能通过数据库直接修改**，API 层硬性拦截 `role_level >= 3` 的创建和修改。
 
+### 内置工具（built-in）
+
+`src/tools/registry.py` 集中暴露 `get_all_tools()`，返回每次启动加载的内置工具列表。当前内置：
+
+| 名称                | 模块                              | 用途                                                                      |
+| ------------------- | --------------------------------- | ------------------------------------------------------------------------- |
+| `render_chart`      | `src/tools/render_chart.py`       | 用 Pydantic 校验图表 spec，输出 ` ```chart ``` ` 代码块，前端 ReactMarkdown 自动渲染交互图。 |
+| `get_current_time`  | `src/tools/get_current_time.py`   | 按 IANA 时区返回当前时间（默认 Asia/Shanghai），含 ISO 8601 + UTC + 偏移。系统提示同时强制要求"涉及今天/现在/星期几等问题先调这个工具"，避免模型用训练截止日期作答。 |
+
+**关键约定**：
+
+- 内置工具对所有用户透明可用，不会出现在工具管理列表，不能起停。
+- `get_builtin_tool_names()` 提供给 skill 下发链路（`src/services/tool_assignment.py`）使用，技能 `required_tools` 中命中内置名时不会被报为缺失依赖。
+- 前端「技能编辑」页有专门的"内置工具"卡片直接展示这些工具的名字、描述、占位符片段，作者用 `{{tool:get_current_time()}}` 即可在 prompt 模板里调用。新增内置工具时，**前端 `SkillsManager.tsx` 的 `BUILTIN_TOOLS` 常量也要同步追加一项**（前后端两处都要登记）。
+
 ### 添加新工具
 
 1. 在 `src/tools/` 创建文件
@@ -141,6 +156,33 @@ stdio 形态把 `url` 换成 `command`（数组）+ 可选 `env`：
 3. 任意 `enabled=True` 的模型（按 `sort_order` 排序）
 找不到任何可用模型时 `LLMConfigError` 会被节点捕获，前端会看到友好提示。
 
+**Provider 能力声明字段（`ProviderSpec`）**：
+
+| 字段                   | 类型   | 用途                                                                              |
+| ---------------------- | ------ | --------------------------------------------------------------------------------- |
+| `supports_reasoning`   | bool   | 该 provider 是否支持深度思考开关。前端据此渲染思考切换按钮。                       |
+| `supports_file_upload` | bool   | 该 provider 是否能接受用户上传的附件（图片 / PDF / 文档）。前端据此显示附件按钮。 |
+| `build_extra_body`     | 回调   | `(extra_config, enable_reasoning) -> dict | None`，把开关翻成 provider-specific 的 `extra_body` 字段（如 Doubao 的 `thinking.type`、Qwen 的 `enable_thinking`）。 |
+| `build_extra_headers`  | 回调   | `(extra_config) -> dict | None`，附加 HTTP header 到每次 chat 请求（如 Qwen 的 `X-DashScope-OssResourceResolve: enable`）。 |
+| `transform_model_id`   | 回调   | 上行模型 id 的格式化函数，default 透传。                                          |
+| `api_key_required`     | bool   | UI 是否强制要求填写 API Key。                                                     |
+
+**每个模型的能力可被 `extra_config` 覆盖**：admin 在「模型管理」编辑某个模型时可填：
+
+```json
+{
+  "supports_reasoning": true,
+  "supports_file_upload": false,
+  "max_tokens": 4096,
+  "extra_body": {"my_custom_flag": true},
+  "extra_headers": {"X-Trace": "abc"}
+}
+```
+
+`/user/models` 返回给前端的 `UserVisibleModel` 把覆盖后的值合并好；前端只读最终结果，不关心是 provider 默认还是 admin 覆盖。
+
+**`max_tokens` 默认不发**：`extra_config.max_tokens` 不设置时不会进入请求体，由 provider 自身的最大输出上限决定（避免长回复或长 JSON 被静默截断）。需要硬封顶时填一个数即可。
+
 **新增一个 provider**：
 
 ```python
@@ -150,7 +192,9 @@ PROVIDERS["my_provider"] = ProviderSpec(
     display_name="我的 Provider",
     default_base_url="https://my.api/v1",
     supports_reasoning=False,
+    supports_file_upload=False,
     build_extra_body=lambda cfg, reasoning: cfg.get("extra_body"),
+    # build_extra_headers=lambda cfg: {"X-Custom": "1"},  # 按需加
 )
 ```
 
@@ -231,6 +275,32 @@ sqlite3 data/agent.db "ALTER TABLE users ADD COLUMN new_field TEXT DEFAULT '';"
 # PostgreSQL
 psql -d system_agent -c "ALTER TABLE users ADD COLUMN new_field TEXT DEFAULT '';"
 ```
+
+### 文件附件桥接（File bridge）
+
+不同 provider 对附件 URL 的可达性要求不同——本地的 `/assets/<id>` 是签名 URL，云端模型直接读不到。`src/agent/file_bridge.py` 在 chat 入口（`/chat` 与 `/chat/stream`）里**先于** `_build_human_message` 被调用，按当前模型的 provider 替换 URL：
+
+```python
+from src.agent.file_bridge import rewrite_file_urls_for_model
+bridged = await rewrite_file_urls_for_model(
+    request.file_urls or [],
+    model_id=user_info.get("model_id"),
+    db=db,
+)
+```
+
+每个 provider 各自实现转换逻辑：
+
+| Provider | 实现                                            | 行为                                                                                                |
+| -------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `qwen`   | `src/agent/llm_providers/qwen_uploader.py`      | 把本地文件字节推到 DashScope 临时 OSS（`POST /api/v1/uploads?action=getPolicy` → 表单上传），返回 `oss://...`，48 小时有效。同 `(model, file_id)` 30 分钟内复用上传结果。 |
+| 其他     | 暂未实现，pass-through                            | URL 原样下发（如 provider 反正能直接读 https / 已经是 oss / 用户手贴的远端 URL）。                |
+
+**额外规则**：
+
+- 上传/转换失败一律回退原 URL 不阻断对话；在 `api.log` 里记录一行 warning + 完整 traceback。
+- Qwen 还需要 `X-DashScope-OssResourceResolve: enable` HTTP header，由 `ProviderSpec.build_extra_headers` 注入到 `OpenAICompatibleLLM.extra_headers`，对所有 Qwen 请求自动附带（无 `oss://` URL 时也无害）。
+- 新增一个支持文件的 provider：在 `file_bridge.py` 的 `rewrite_file_urls_for_model` 里加一个 `elif provider_key == "xxx"` 分支，按该 provider 的方式上传并返回它能读的 URL 即可。
 
 ## 注意事项
 

@@ -19,6 +19,12 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
+  Brain,
+  Paperclip,
+  KeyRound,
+  ExternalLink,
+  Info,
+  Copy,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -44,7 +50,10 @@ const EMPTY_INPUT: LLMModelInput = {
   model: '',
   api_key: '',
   base_url: '',
-  extra_config: { temperature: 0.7, max_tokens: 2000 },
+  // 默认空对象 — provider 自身的默认 (temperature=0.7, 不限 max_tokens 等)
+  // 已经够用；admin 想覆盖再填字段。avoid 默认就写一个 max_tokens 把回复
+  // 截断的坑。
+  extra_config: {},
   enabled: true,
   visible_to_users: true,
   is_default: false,
@@ -411,9 +420,6 @@ export const ModelsManager: React.FC = () => {
                       ))}
                     </SelectContent>
                   </Select>
-                  {providerSpec?.notes && (
-                    <p className="text-xs text-muted-foreground">{providerSpec.notes}</p>
-                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Model id *</Label>
@@ -426,6 +432,84 @@ export const ModelsManager: React.FC = () => {
                 </div>
               </div>
 
+              {/* Provider 默认值与配置规范 — 一旦选择 provider 就把它的默认 base
+                  URL、能力位、官方文档链接、备注约定全部铺出来，避免管理员
+                  到处翻代码或猜模型支持什么。 */}
+              {providerSpec && (
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5">
+                  <div className="flex items-start gap-2 text-sm">
+                    <Info className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium">{providerSpec.display_name} 配置规范</div>
+                      {providerSpec.description && (
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {providerSpec.description}
+                        </div>
+                      )}
+                    </div>
+                    {providerSpec.docs_url && (
+                      <a
+                        href={providerSpec.docs_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline flex items-center gap-1 flex-shrink-0"
+                      >
+                        官方文档 <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Capability badges */}
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    <Badge variant="outline" className={providerSpec.supports_reasoning ? 'border-primary/40 text-primary' : 'opacity-60'}>
+                      <Brain className="w-3 h-3 mr-1" />
+                      深度思考 {providerSpec.supports_reasoning ? '✓' : '✗'}
+                    </Badge>
+                    <Badge variant="outline" className={providerSpec.supports_file_upload ? 'border-primary/40 text-primary' : 'opacity-60'}>
+                      <Paperclip className="w-3 h-3 mr-1" />
+                      文件附件 {providerSpec.supports_file_upload ? '✓' : '✗'}
+                    </Badge>
+                    <Badge variant="outline" className={providerSpec.api_key_required ? '' : 'opacity-60'}>
+                      <KeyRound className="w-3 h-3 mr-1" />
+                      API Key {providerSpec.api_key_required ? '必填' : '可选'}
+                    </Badge>
+                  </div>
+
+                  {/* Default base URL with one-click copy */}
+                  <div className="text-xs space-y-0.5">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <span>默认 base_url：</span>
+                      {providerSpec.default_base_url ? (
+                        <>
+                          <code className="font-mono bg-background/70 px-1.5 py-0.5 rounded border border-border/50">
+                            {providerSpec.default_base_url}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(providerSpec.default_base_url || '');
+                              toast({ title: '已复制' });
+                            }}
+                            className="text-muted-foreground hover:text-foreground"
+                            title="复制"
+                          >
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="italic">无 — 必须手动填写</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {providerSpec.notes && (
+                    <div className="text-xs text-muted-foreground pt-1 border-t border-primary/10">
+                      <span className="font-medium text-foreground/80">备注：</span> {providerSpec.notes}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label>Base URL</Label>
                 <Input
@@ -436,8 +520,8 @@ export const ModelsManager: React.FC = () => {
                 />
                 <p className="text-xs text-muted-foreground">
                   {providerSpec?.default_base_url
-                    ? `留空使用 provider 默认: ${providerSpec.default_base_url}`
-                    : '自定义 provider 必须填写 base_url'}
+                    ? '留空使用上方的 provider 默认值；填写则覆盖默认。'
+                    : '自定义 provider 必须填写 base_url。'}
                 </p>
               </div>
 
@@ -465,12 +549,66 @@ export const ModelsManager: React.FC = () => {
                 value={extraConfigText}
                 onChange={(v) => { setExtraConfigText(v); setExtraConfigError(''); }}
                 error={extraConfigError}
-                rows={5}
-                placeholder='{\n  "temperature": 0.7,\n  "max_tokens": 2000,\n  "extra_body": {}\n}'
+                rows={6}
+                placeholder={'{\n  "temperature": 0.7\n}'}
                 description={
-                  <p className="text-xs text-muted-foreground">
-                    支持 <code>temperature</code>、<code>max_tokens</code>、<code>extra_body</code>（透传到 OpenAI 请求体）
-                  </p>
+                  <div className="text-xs text-muted-foreground space-y-1.5">
+                    <p>留空即可，所有字段都是可选；任意字段写 <code>null</code> 表示用 provider 默认。</p>
+                    <table className="w-full border border-border/40 rounded">
+                      <thead className="bg-muted/40">
+                        <tr className="text-left">
+                          <th className="px-2 py-1 font-medium">字段</th>
+                          <th className="px-2 py-1 font-medium">默认 / 行为</th>
+                        </tr>
+                      </thead>
+                      <tbody className="font-mono text-[11px]">
+                        <tr className="border-t border-border/30">
+                          <td className="px-2 py-1"><code>temperature</code></td>
+                          <td className="px-2 py-1">省略默认 <code>0.7</code></td>
+                        </tr>
+                        <tr className="border-t border-border/30">
+                          <td className="px-2 py-1"><code>max_tokens</code></td>
+                          <td className="px-2 py-1">省略表示<b>不发送</b>，由 provider 自身上限决定（推荐）</td>
+                        </tr>
+                        <tr className="border-t border-border/30">
+                          <td className="px-2 py-1"><code>extra_body</code></td>
+                          <td className="px-2 py-1">透传到 OpenAI 请求体；与 provider 自带的 extra_body 合并（用户值优先）</td>
+                        </tr>
+                        <tr className="border-t border-border/30">
+                          <td className="px-2 py-1"><code>extra_headers</code></td>
+                          <td className="px-2 py-1">追加 HTTP header；与 provider 自带 header 合并（用户值优先）</td>
+                        </tr>
+                        <tr className="border-t border-border/30">
+                          <td className="px-2 py-1"><code>supports_reasoning</code></td>
+                          <td className="px-2 py-1">
+                            覆盖 provider 默认值（当前 provider:{' '}
+                            <span className="font-sans">
+                              {providerSpec?.supports_reasoning ? '✓' : '✗'}
+                            </span>
+                            ）
+                          </td>
+                        </tr>
+                        <tr className="border-t border-border/30">
+                          <td className="px-2 py-1"><code>supports_file_upload</code></td>
+                          <td className="px-2 py-1">
+                            覆盖 provider 默认值（当前 provider:{' '}
+                            <span className="font-sans">
+                              {providerSpec?.supports_file_upload ? '✓' : '✗'}
+                            </span>
+                            ）
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p>
+                      示例（同 provider 下的 <span className="font-mono">qwen-max</span> 关掉文件附件，因为它不是 VL 模型）：
+                    </p>
+                    <pre className="font-mono text-[11px] bg-muted/40 border border-border/40 rounded p-2 whitespace-pre-wrap">{`{
+  "temperature": 0.5,
+  "supports_file_upload": false,
+  "extra_body": { "enable_search": true }
+}`}</pre>
+                  </div>
                 }
               />
 

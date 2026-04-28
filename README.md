@@ -91,18 +91,23 @@ Agent Craft 是一个**可扩展的对话式 Agent 平台**：
 - **人工审批**：高风险工具调用通过 `interrupt_before=["execute_tools"]` 暂停，前端弹审批后调 `/callback` 恢复。
 - **可观测性**：可选接入 LangSmith，自动上报 Trace；内置 ObservabilityPanel 可视化执行链路。
 - **多模型可切换**：支持任意 OpenAI 兼容端点；模型由超管在「全局管理 → 模型管理」配置（API Key 支持 `${ENV_VAR}` 占位符），用户在对话框顶部按需切换。
+- **模型能力声明（Capability flags）**：每个 provider 通过 `ProviderSpec` 声明 `supports_reasoning`（深度思考 / thinking）、`supports_file_upload`（接受用户上传附件）等能力；前端据此自动决定是否渲染对应 UI（思考开关、附件按钮）。admin 可在某个模型的 `extra_config` 中以 `supports_reasoning` / `supports_file_upload` 字段进行**每个模型粒度**的覆盖（例如同属 Qwen 的 `qwen-max` 关掉文件上传、`qwen-vl-plus` 打开）。
+- **深度思考切换**：Doubao thinking 系列、Qwen3 thinking 系列等模型可在对话顶部一键开启 / 关闭推理模式；后端按 provider 把开关翻译为对应的 `extra_body` 字段（Doubao 的 `thinking.type`、Qwen 的 `enable_thinking`）。
+- **不限制输出长度**：默认不向 provider 发送 `max_tokens`，由各家自身的最大输出上限决定。需要硬封顶时在该模型 `extra_config.max_tokens` 上写一个数即可。
 
 ### 工具与技能体系
 工具 / 技能分为两类：
 
 | 形态           | 注册方式                              | 存储     | 是否可管理              | 典型用途                                    |
 | -------------- | ------------------------------------- | -------- | ----------------------- | ------------------------------------------- |
-| **内置 (Built-in)** | 在代码中用 `@tool` / `@skill` 装饰器静态注册 | 仅代码   | **不可** 起停/下发/删除 | 底层能力（如图表渲染 `render_chart` / Recharts）、平台原语，随服务启动加载 |
+| **内置 (Built-in)** | 在代码中用 `@tool` / `@skill` 装饰器静态注册 | 仅代码   | **不可** 起停/下发/删除 | 底层能力（如图表渲染 `render_chart`、获取当前时间 `get_current_time`）、平台原语，随服务启动加载 |
 | **配置型 (Configured)** | 在前端页面创建（HTTP 请求 / 脚本编排等模板） | 数据库   | **可** 起停、编辑、下发 | 业务侧的内部 API、跨系统流程，由用户或超管按需维护 |
 
 - **工具 (Tool)**：原子操作，对应单个内部 / 第三方 API 调用。
 - **技能 (Skill)**：业务编排，把多个工具按流程串起来完成一件事。
 - **内置**视为系统的"底层能力"，无需管理界面，对所有用户透明可用；不会出现在工具/技能管理列表中。
+  - 当前内置工具：`render_chart`（图表渲染，前端识别 `chart` 代码块自动渲染交互图）、`get_current_time`（按 IANA 时区返回当前时间，避免模型用训练截止日期作答）。
+  - 技能编辑页有专门的"内置工具"折叠卡片提示这些工具的名字与占位符，作者直接在 `prompt_template` 里写工具名即可调用；技能下发链路自动把内置工具从"缺失依赖"中过滤掉。
 - **配置型**才进入数据库，分**个人**与**全局**两个空间：
   - 普通用户在自己的空间创建私有工具/技能；
   - 超级管理员维护全局工具/技能，并按需下发给指定用户。
@@ -129,10 +134,13 @@ Agent Craft 是一个**可扩展的对话式 Agent 平台**：
 
 - **API Key**：除 JWT 外支持 API Key 鉴权，便于脚本/外部系统对接。
 
-### 用户工作空间（暂未完善，调用还有问题）
+### 用户工作空间与文件附件
 
-- 每个用户拥有独立的文件工作空间（`data/workspaces/{user_id}/`）。
+- 每个用户拥有独立的文件工作空间（`data/workspaces/{user_id}/`），按 `files` / `generated` / `sandbox` / `assets` 四个文件夹分类。
 - 支持上传 / 下载 / 删除，工具调用可读写当前用户的文件目录，天然隔离。
+- **对话内附件**：聊天窗的附件按钮整合为一个 Paperclip 浮窗，提供两条入口——"上传本地文件"或"从文件管理选择"。线上选择面板带文件夹筛选 + 实时搜索 + 计数胶囊，已选文件去重。
+- **附件按模型能力门控**：当前模型 `supports_file_upload=false` 时附件按钮自动隐藏，避免选了不支持附件的模型才发现传不进去。
+- **跨 provider 文件桥接**：以 Qwen 为例，发送时后端会把本地 `/assets/<id>` URL 通过 DashScope 文件 API 推到临时 OSS（`oss://...`，48 小时有效）并自动附带 `X-DashScope-OssResourceResolve: enable` header，模型才能真正读到附件。同一文件在 30 分钟内复用上传结果，避免重复上传。
 
 ### 前端控制台
 

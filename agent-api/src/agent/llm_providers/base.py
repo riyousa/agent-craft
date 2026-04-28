@@ -174,6 +174,7 @@ def list_providers() -> list[dict]:
             "description": p.description,
             "default_base_url": p.default_base_url,
             "supports_reasoning": p.supports_reasoning,
+            "supports_file_upload": p.supports_file_upload,
             "api_key_required": p.api_key_required,
             "docs_url": p.docs_url,
             "notes": p.notes,

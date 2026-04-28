@@ -403,6 +403,7 @@ export interface LLMProviderInfo {
   description: string;
   default_base_url: string | null;
   supports_reasoning: boolean;
+  supports_file_upload: boolean;
   api_key_required: boolean;
   docs_url: string;
   notes: string;
