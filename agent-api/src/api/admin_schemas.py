@@ -354,6 +354,7 @@ class UserVisibleModel(BaseModel):
     description: str = ""
     provider: str
     supports_reasoning: bool = False
+    supports_file_upload: bool = False
     is_default: bool = False
 
 

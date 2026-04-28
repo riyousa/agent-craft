@@ -25,13 +25,23 @@ import {
   RotateCcw,
   StopCircle,
   SquarePen,
+  FolderOpen,
+  Search,
+  Inbox,
+  Upload,
+  Files as FilesIcon,
+  Sparkles,
+  FlaskConical,
 } from 'lucide-react';
-import { userApi, userModelsApi, UserVisibleModel } from '../api/user';
+import { userApi, userModelsApi, UserVisibleModel, UserFile } from '../api/user';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { ScrollArea } from './ui/scroll-area';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import { Input } from './ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import {
   Drawer, DrawerClose, DrawerContent, DrawerDescription,
   DrawerFooter, DrawerHeader, DrawerTitle,
@@ -102,6 +112,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
   );
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; url: string }[]>([]);
   const [uploading, setUploading] = useState(false);
+  // Picker dialog: lets the user attach a file already in their workspace
+  // ("文件管理") instead of re-uploading. State stays local — no need to
+  // hoist since nothing else listens to it.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerFiles, setPickerFiles] = useState<UserFile[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerFolder, setPickerFolder] = useState<string>(''); // '' = all folders
+  // Combined attach button now opens a popover with two choices instead of
+  // owning two separate icons in the composer.
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [checkpoints, setCheckpoints] = useState<any[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
@@ -294,6 +315,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
     return m ? m.supports_reasoning : false;
   }, [availableModels, selectedModel]);
 
+  // Default to TRUE for the empty state / unknown model (e.g. before the
+  // model list has loaded) so first-paint doesn't briefly hide an
+  // already-attached file. Once we know the model and it doesn't support
+  // uploads, the composer button disappears.
+  const currentModelSupportsFileUpload = useMemo(() => {
+    const m = availableModels.find((x) => x.name === selectedModel);
+    if (!m) return true;
+    return !!m.supports_file_upload;
+  }, [availableModels, selectedModel]);
+
   // Auto-grow the composer textarea between min-height and a hard cap.
   // Re-runs on every keystroke; clamps with `Math.min` so the pill can't
   // push the chat area off-screen, and lets the textarea scroll once full.
@@ -369,6 +400,93 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
 
   const removeFile = (index: number) => {
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const openFilePicker = async () => {
+    setAttachMenuOpen(false);
+    setPickerOpen(true);
+    setPickerSearch('');
+    setPickerFolder('');
+    setPickerLoading(true);
+    try {
+      // Load every folder in one shot — file_type filtering happens
+      // client-side so switching tabs is instant and the dialog only
+      // costs a single network round-trip when first opened.
+      const files = await userApi.listFiles();
+      setPickerFiles(files);
+    } catch {
+      setPickerFiles([]);
+    } finally {
+      setPickerLoading(false);
+    }
+  };
+
+  // Folder definitions mirror the tabs in UserFilesManager so the chat
+  // picker reads the same vocabulary the user already learned there.
+  const PICKER_FOLDERS: { id: string; label: string; Icon: typeof FolderOpen }[] = [
+    { id: '', label: '全部', Icon: FolderOpen },
+    { id: 'files', label: '上传', Icon: FilesIcon },
+    { id: 'generated', label: '生成', Icon: Sparkles },
+    { id: 'sandbox', label: '沙箱', Icon: FlaskConical },
+    { id: 'assets', label: '素材', Icon: Paperclip },
+  ];
+
+  const attachFromWorkspace = (file: UserFile) => {
+    // Prefer the server-signed asset_url (with token), fall back to the
+    // unsigned route — same logic as upload, see handleFileUpload.
+    const url = file.asset_url
+      ? `${API_BASE}${file.asset_url}`
+      : `${API_BASE}/assets/${file.id}`;
+    // Skip duplicates (same URL already attached).
+    setAttachedFiles(prev =>
+      prev.some(f => f.url === url) ? prev : [...prev, { name: file.filename, url }],
+    );
+    setPickerOpen(false);
+  };
+
+  // Filter chain: folder tab → search query → sort newest-first. All
+  // computed locally so flipping tabs / typing in the search box is
+  // instant after the initial fetch.
+  const filteredPickerFiles = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    const byFolder = pickerFolder
+      ? pickerFiles.filter(f => f.file_type === pickerFolder)
+      : pickerFiles;
+    const list = q
+      ? byFolder.filter(
+          f =>
+            f.filename.toLowerCase().includes(q) ||
+            (f.description || '').toLowerCase().includes(q),
+        )
+      : byFolder;
+    return [...list].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+  }, [pickerFiles, pickerSearch, pickerFolder]);
+
+  // Per-folder counts for tab badges — derived from the current filtered
+  // search query so the badge "decreases" as the user narrows results.
+  const folderCounts = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    const matches = q
+      ? pickerFiles.filter(
+          f =>
+            f.filename.toLowerCase().includes(q) ||
+            (f.description || '').toLowerCase().includes(q),
+        )
+      : pickerFiles;
+    const counts: Record<string, number> = { '': matches.length };
+    for (const f of matches) {
+      counts[f.file_type] = (counts[f.file_type] || 0) + 1;
+    }
+    return counts;
+  }, [pickerFiles, pickerSearch]);
+
+  const formatBytes = (n: number): string => {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
   };
 
   const sendMessage = async () => {
@@ -723,7 +841,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
     })();
 
     return (
-      <div key={stepIndex} className="relative pl-8 pb-3 last:pb-0 min-w-0">
+      <div
+        key={stepIndex}
+        className="relative pl-8 pb-3 last:pb-0 min-w-0 animate-fade-in-up"
+      >
         {/* vertical rail to next node */}
         {!isLast && (
           <div className="absolute left-[11px] top-6 bottom-0 w-px bg-border" />
@@ -785,7 +906,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
     isInFlight: boolean = false,
   ) => {
     return (
-      <div className="border border-border/40 bg-muted/30 rounded-lg mb-3 overflow-hidden">
+      <div className="border border-border/40 bg-muted/30 rounded-lg mb-3 overflow-hidden animate-fade-in">
         <button
           type="button"
           onClick={onToggle}
@@ -924,18 +1045,54 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
           <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
 
           <div className="flex items-end gap-1.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={loading || uploading}
-              className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground hover:bg-background/60 shrink-0"
-              title="上传附件"
-            >
-              {uploading
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <Paperclip className="w-4 h-4" />}
-            </Button>
+            {currentModelSupportsFileUpload && (
+            <Popover open={attachMenuOpen} onOpenChange={setAttachMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={loading || uploading}
+                  className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground hover:bg-background/60 shrink-0"
+                  title="添加附件"
+                >
+                  {uploading
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Paperclip className="w-4 h-4" />}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="start"
+                className="w-56 p-1"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttachMenuOpen(false);
+                    fileInputRef.current?.click();
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors text-left"
+                >
+                  <Upload className="w-4 h-4 text-muted-foreground" />
+                  <div className="flex-1">
+                    <div className="font-medium">上传本地文件</div>
+                    <div className="text-xs text-muted-foreground">从电脑选择新文件</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={openFilePicker}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors text-left"
+                >
+                  <FolderOpen className="w-4 h-4 text-muted-foreground" />
+                  <div className="flex-1">
+                    <div className="font-medium">从文件管理选择</div>
+                    <div className="text-xs text-muted-foreground">已上传/生成/沙箱/素材</div>
+                  </div>
+                </button>
+              </PopoverContent>
+            </Popover>
+            )}
 
             <Textarea
               ref={textareaRef}
@@ -1021,14 +1178,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
         <div className="flex-1 flex flex-col items-center justify-center px-4 -mt-8">
           <div className="w-full max-w-2xl">
             <div className="text-center mb-6 space-y-1.5">
-              <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
+              <h1
+                className="text-2xl md:text-3xl font-semibold tracking-tight animate-rise-in"
+                style={{ animationDelay: '40ms' }}
+              >
                 欢迎回来
               </h1>
-              <p className="text-sm text-muted-foreground">
+              <p
+                className="text-sm text-muted-foreground animate-rise-in"
+                style={{ animationDelay: '160ms' }}
+              >
                 内部 API、流程、数据，一句话搞定
               </p>
             </div>
-            {renderComposer()}
+            <div className="animate-rise-in" style={{ animationDelay: '280ms' }}>
+              {renderComposer()}
+            </div>
           </div>
         </div>
       ) : (
@@ -1038,7 +1203,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
         <div className="max-w-3xl mx-auto space-y-5 pt-6 pb-2">
           {/* Messages */}
           {messages.map((msg, index) => (
-            <div key={index} className="flex flex-col group min-w-0">
+            <div
+              key={index}
+              className="flex flex-col group min-w-0 animate-fade-in-up"
+              // Tiny per-message stagger so a freshly-loaded thread cascades
+              // in instead of slamming on screen all at once. Capped at 150ms
+              // so long histories don't feel sluggish on first paint, and
+              // each newly-streamed message (highest index, mounted alone)
+              // keeps a snappy ~280ms entry.
+              style={{ animationDelay: `${Math.min(index * 25, 150)}ms` }}
+            >
               {msg.role === 'user' ? (
                 /* User — right-aligned bubble, no avatar, asymmetric corner */
                 <div className="flex justify-end">
@@ -1132,7 +1306,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
 
       {/* Approval Bar */}
       {requiresApproval && (
-        <div className="flex-shrink-0 px-4 py-3 border-t bg-background">
+        <div className="flex-shrink-0 px-4 py-3 border-t bg-background animate-slide-down-fade">
           <div className="max-w-3xl mx-auto">
             <Alert variant="destructive" className="border-2">
               <AlertCircle className="h-4 w-4" />
@@ -1275,6 +1449,130 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo }) => {
         onSelectConversation={handleSelectConversation}
         refreshTrigger={historyRefreshTrigger}
       />
+
+      {/* File picker — pulls existing items from 文件管理 so the user
+          doesn't have to re-upload assets they've already saved. */}
+      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderOpen className="w-5 h-5" />
+              从文件管理选择
+            </DialogTitle>
+            <DialogDescription>
+              点击文件即可加入到本次对话；多次点击可附加多个。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              autoFocus
+              value={pickerSearch}
+              onChange={(e) => setPickerSearch(e.target.value)}
+              placeholder="搜索文件名或描述"
+              className="pl-9"
+            />
+          </div>
+
+          {/* Folder tabs — mirror UserFilesManager. Counts reflect the
+              current search query so the user can see at a glance which
+              folder still has matches. */}
+          <div className="flex flex-wrap gap-1">
+            {PICKER_FOLDERS.map(({ id, label, Icon }) => {
+              const count = folderCounts[id] ?? 0;
+              const active = pickerFolder === id;
+              return (
+                <Button
+                  key={id || 'all'}
+                  variant={active ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setPickerFolder(id)}
+                  className="h-8 gap-1.5"
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{label}</span>
+                  <span
+                    className={cn(
+                      'text-[10px] px-1.5 rounded-full',
+                      active
+                        ? 'bg-background/20 text-primary-foreground/90'
+                        : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {count}
+                  </span>
+                </Button>
+              );
+            })}
+          </div>
+
+          <ScrollArea className="max-h-[420px] rounded-md border border-border/50">
+            {pickerLoading ? (
+              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> 加载中...
+              </div>
+            ) : filteredPickerFiles.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-sm text-muted-foreground gap-2">
+                <Inbox className="w-6 h-6 opacity-60" />
+                {pickerSearch ? '没有匹配的文件' : '文件管理还没有文件，先去上传一个吧'}
+              </div>
+            ) : (
+              <div className="divide-y divide-border/50">
+                {filteredPickerFiles.map((file) => {
+                  const ext = file.filename.split('.').pop()?.toLowerCase() || '';
+                  const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext);
+                  const folderMeta =
+                    PICKER_FOLDERS.find((f) => f.id === file.file_type) || null;
+                  const alreadyAttached = attachedFiles.some(
+                    (f) =>
+                      f.url ===
+                      (file.asset_url
+                        ? `${API_BASE}${file.asset_url}`
+                        : `${API_BASE}/assets/${file.id}`),
+                  );
+                  return (
+                    <button
+                      key={file.id}
+                      type="button"
+                      onClick={() => attachFromWorkspace(file)}
+                      disabled={alreadyAttached}
+                      className={cn(
+                        'w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors',
+                        alreadyAttached
+                          ? 'opacity-60 cursor-not-allowed'
+                          : 'hover:bg-accent',
+                      )}
+                    >
+                      {isImage ? (
+                        <ImageIcon className="w-4 h-4 text-chart-4 flex-shrink-0" />
+                      ) : (
+                        <FileIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{file.filename}</div>
+                        <div className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
+                          {folderMeta && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-muted/70 text-[10px]">
+                              <folderMeta.Icon className="w-3 h-3" />
+                              {folderMeta.label}
+                            </span>
+                          )}
+                          <span>{formatBytes(file.size_bytes)}</span>
+                          {file.description && <span>· {file.description}</span>}
+                        </div>
+                      </div>
+                      {alreadyAttached && (
+                        <CheckCircle2 className="w-4 h-4 text-chart-2 flex-shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

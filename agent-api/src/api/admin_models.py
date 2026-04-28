@@ -239,8 +239,18 @@ async def list_user_visible_models(
         try:
             spec = get_provider(r.provider)
             supports_reasoning = spec.supports_reasoning
+            supports_file_upload = spec.supports_file_upload
         except Exception:
             supports_reasoning = False
+            supports_file_upload = False
+        # Allow per-model override via extra_config — handy when only some
+        # of a provider's models actually take attachments (e.g. only
+        # qwen-vl-* in the Qwen family).
+        extra = r.extra_config or {}
+        if "supports_file_upload" in extra:
+            supports_file_upload = bool(extra.get("supports_file_upload"))
+        if "supports_reasoning" in extra:
+            supports_reasoning = bool(extra.get("supports_reasoning"))
         out.append(
             UserVisibleModel(
                 name=r.name,
@@ -248,6 +258,7 @@ async def list_user_visible_models(
                 description=r.description or "",
                 provider=r.provider,
                 supports_reasoning=supports_reasoning,
+                supports_file_upload=supports_file_upload,
                 is_default=r.is_default,
             )
         )

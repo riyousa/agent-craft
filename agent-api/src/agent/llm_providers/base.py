@@ -26,9 +26,19 @@ class ProviderSpec:
     default_base_url: Optional[str]
     description: str = ""
     supports_reasoning: bool = False
+    # Whether the provider can ingest user-uploaded files (images / PDFs /
+    # text). Frontend uses this flag to decide whether to render the
+    # composer attach button. Provider-level switch; admin can override
+    # per-model via `extra_config.supports_file_upload`.
+    supports_file_upload: bool = False
     api_key_required: bool = True
     # (extra_config dict, enable_reasoning bool) -> extra_body dict (or None)
     build_extra_body: Optional[Callable[[dict, bool], Optional[dict]]] = None
+    # (extra_config dict) -> dict of additional HTTP headers to attach to
+    # every chat completion request. Used for things like Qwen's
+    # `X-DashScope-OssResourceResolve: enable` which must accompany any
+    # `oss://` file references.
+    build_extra_headers: Optional[Callable[[dict], Optional[dict]]] = None
     # If the model id needs special formatting per provider, plug in here.
     # Default: pass through.
     transform_model_id: Optional[Callable[[str], str]] = None
@@ -72,6 +82,16 @@ def _passthrough_extra_body(extra_config: dict, enable_reasoning: bool) -> Optio
     return user_extra
 
 
+def _qwen_extra_headers(extra_config: dict) -> Optional[dict]:
+    """Required when any user message references an `oss://` URL produced
+    by `qwen_uploader`. Sending it unconditionally is harmless when no
+    such URL is present, so we always include it for Qwen requests."""
+    user_extra = (extra_config or {}).get("extra_headers") or {}
+    headers = {"X-DashScope-OssResourceResolve": "enable"}
+    headers.update(user_extra)
+    return headers
+
+
 PROVIDERS: dict[str, ProviderSpec] = {
     "openai": ProviderSpec(
         key="openai",
@@ -88,9 +108,15 @@ PROVIDERS: dict[str, ProviderSpec] = {
         default_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         description="阿里云百炼 / DashScope OpenAI 兼容端点（qwen-max、qwen-plus、qwen3 等）",
         supports_reasoning=True,
+        # 视觉/文档类模型（qwen-vl-plus、qwen3-vl、qwen-long 等）通过
+        # OpenAI 兼容的 messages.content[type=image_url] 或 DashScope 文件
+        # API 接受附件。具体某个模型是否真支持由 extra_config.supports_file_upload
+        # 覆盖；这里在 provider 层声明能力上限。
+        supports_file_upload=True,
         build_extra_body=_qwen_extra_body,
+        build_extra_headers=_qwen_extra_headers,
         docs_url="https://help.aliyun.com/zh/model-studio/getting-started/",
-        notes="深度思考仅 Qwen3 系列等思考模型支持，开关通过 extra_body.enable_thinking 控制。",
+        notes="深度思考仅 Qwen3 系列等思考模型支持，开关通过 extra_body.enable_thinking 控制。文件上传需选择 VL / Long 类模型。",
     ),
     "glm": ProviderSpec(
         key="glm",

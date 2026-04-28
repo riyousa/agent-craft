@@ -283,8 +283,13 @@ async def chat(
             configurable["checkpoint_id"] = request.checkpoint_id
         config = {"configurable": configurable, "recursion_limit": 50}
 
+        from src.agent.file_bridge import rewrite_file_urls_for_model
+        bridged_file_urls = await rewrite_file_urls_for_model(
+            request.file_urls or [], model_id=user_info.get("model_id"), db=db,
+        )
+
         initial_state = {
-            "messages": [_build_human_message(request.message, request.file_urls)],
+            "messages": [_build_human_message(request.message, bridged_file_urls)],
             "user_info": user_info,
             "current_skill": "",
             "approval_granted": False,  # Reset approval flag for new message
@@ -354,8 +359,13 @@ async def chat_stream(
                 configurable["checkpoint_id"] = request.checkpoint_id
             config = {"configurable": configurable, "recursion_limit": 50}
 
+            from src.agent.file_bridge import rewrite_file_urls_for_model
+            bridged_file_urls = await rewrite_file_urls_for_model(
+                request.file_urls or [], model_id=user_info.get("model_id"), db=db,
+            )
+
             initial_state = {
-                "messages": [_build_human_message(request.message, request.file_urls)],
+                "messages": [_build_human_message(request.message, bridged_file_urls)],
                 "user_info": user_info,
                 "current_skill": "",
                 "approval_granted": False,  # Reset approval flag for new message

@@ -32,3 +32,24 @@
     @apply border-input accent-primary;
   }
 }
+
+/* Respect users who've asked the OS to minimise motion — disable our
+   custom entrance animations and the bundled accordion ones. The dot
+   bouncer / spinner stays on because it carries semantic "loading"
+   meaning, but the elastic motion is removed via duration cap. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-fade-in-up,
+  .animate-slide-down-fade,
+  .animate-rise-in {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

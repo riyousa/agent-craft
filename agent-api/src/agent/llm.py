@@ -49,6 +49,8 @@ class OpenAICompatibleLLM(BaseChatModel):
 
     # Provider quirks merged into the OpenAI request body via extra_body.
     extra_body: Optional[dict] = None
+    # Additional HTTP headers (e.g. Qwen's X-DashScope-OssResourceResolve).
+    extra_headers: Optional[dict] = None
 
     @property
     def _llm_type(self) -> str:
@@ -81,6 +83,11 @@ class OpenAICompatibleLLM(BaseChatModel):
         if cfg.provider.build_extra_body is not None:
             extra_body = cfg.provider.build_extra_body(defaults, enable_reasoning)
 
+        # Provider-specific HTTP headers (e.g. Qwen's OSS resource resolve).
+        extra_headers: Optional[dict] = None
+        if cfg.provider.build_extra_headers is not None:
+            extra_headers = cfg.provider.build_extra_headers(defaults)
+
         return cls(
             model_name=cfg.name,
             provider_key=cfg.provider_key,
@@ -92,6 +99,7 @@ class OpenAICompatibleLLM(BaseChatModel):
             enable_reasoning=enable_reasoning,
             streaming=streaming,
             extra_body=extra_body,
+            extra_headers=extra_headers,
         )
 
     def bind_tools(self, tools: list, **kwargs: Any) -> "OpenAICompatibleLLM":
@@ -111,6 +119,7 @@ class OpenAICompatibleLLM(BaseChatModel):
                 enable_reasoning=self.enable_reasoning,
                 streaming=self.streaming,
                 extra_body=self.extra_body,
+                extra_headers=self.extra_headers,
             )
 
     def _generate(self, messages: List[BaseMessage], **kwargs: Any) -> Any:
@@ -166,6 +175,8 @@ class OpenAICompatibleLLM(BaseChatModel):
 
             if self.extra_body:
                 api_params["extra_body"] = self.extra_body
+            if self.extra_headers:
+                api_params["extra_headers"] = self.extra_headers
 
             if self.bound_tools:
                 tools = []

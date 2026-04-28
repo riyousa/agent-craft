@@ -447,6 +447,7 @@ export interface UserVisibleModel {
   description: string;
   provider: string;
   supports_reasoning: boolean;
+  supports_file_upload: boolean;
   is_default: boolean;
 }
 
