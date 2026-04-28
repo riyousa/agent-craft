@@ -326,7 +326,7 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
             />
           ) : (
             <div className="rounded-lg border border-border bg-card overflow-hidden">
-              <Table className="table-fixed">
+              <Table className="table-fixed min-w-[640px]">
                 {/* Percentage-based columns: 会话 = 50%, the other six
                     columns split the remaining 50% in roughly the same
                     ratio they had as fixed pixels. Sum totals 100% so

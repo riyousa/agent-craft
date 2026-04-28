@@ -532,7 +532,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
               )
             ) : (
               <div className="rounded-lg border border-border bg-card overflow-hidden">
-                <Table className="table-fixed">
+                <Table className="table-fixed min-w-[760px]">
                   <colgroup>
                     <col className="w-[42%]" />
                     <col className="w-[10%]" />

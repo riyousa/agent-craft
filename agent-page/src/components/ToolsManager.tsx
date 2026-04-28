@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   XCircle,
   ChevronDown,
+  ChevronRight,
   Server,
   Upload,
   MoreHorizontal,
@@ -76,6 +77,10 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
   const [testResult, setTestResult] = useState<any>(null);
   const [testParamsText, setTestParamsText] = useState('{}');
   const [testDrawerOpen, setTestDrawerOpen] = useState(false);
+  // Mobile-only AI assistant trigger — the desktop right pane hides
+  // under the md breakpoint, so we surface a Drawer with identical
+  // content on smaller viewports.
+  const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [testEndpoint, setTestEndpoint] = useState('');
   const [testMethod, setTestMethod] = useState('POST');
 
@@ -841,7 +846,7 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
               )
             ) : (
               <div className="rounded-lg border border-border bg-card overflow-hidden">
-                <Table className="table-fixed">
+                <Table className="table-fixed min-w-[760px]">
                   <colgroup>
                     <col className="w-[42%]" />
                     <col className="w-[10%]" />
@@ -1209,6 +1214,157 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
   // Form view (Create/Edit) — v3 two-pane layout: form on the left,
   // AI assistant pinned to a 380px right sidebar (instead of the
   // legacy inline collapsible card).
+  // The AI panel content is identical on desktop (right aside) and
+  // mobile (Drawer triggered from a button at the top of the form),
+  // so we capture it as a JSX expression and reuse.
+  const aiPanelContent = (
+    <>
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+        <Sparkles className="h-3.5 w-3.5 text-foreground" />
+        <span className="text-[12.5px] font-semibold text-foreground">AI 配置助手</span>
+        <Pill tone="info" className="ml-auto">BETA</Pill>
+      </header>
+
+      <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3.5">
+        <div className="rounded-lg border border-border bg-background px-3 py-2.5 text-[12.5px] leading-relaxed text-foreground">
+          贴 <strong>cURL</strong>、<strong>OpenAPI 片段</strong> 或一段中文描述。我会一次性填好<strong>端点 / 方法 / 鉴权 / 参数 schema / 响应映射</strong>，左侧表单立即更新，你审一遍就能保存。
+        </div>
+
+        <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+          示例模板（点击填入）
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {(
+            viewMode === 'create'
+              ? [
+                  {
+                    label: '从 cURL 一键生成',
+                    sub: '复制实际的 curl 命令，AI 解析 method / URL / headers / body',
+                    seed:
+                      "curl -X POST 'https://erp.example.com/api/v2/refunds' \\\n" +
+                      "  -H 'Authorization: Bearer ${ERP_API_TOKEN}' \\\n" +
+                      "  -H 'Content-Type: application/json' \\\n" +
+                      "  -d '{\n" +
+                      '    "order_id": "ord_8821",\n' +
+                      '    "amount": 1280,\n' +
+                      '    "reason": "商品质量问题"\n' +
+                      "  }'",
+                  },
+                  {
+                    label: '从 API 文档片段',
+                    sub: '粘贴接口文档的请求 / 响应说明，AI 抽出参数表',
+                    seed:
+                      'POST /api/v2/refunds — 创建退款单\n\n' +
+                      '请求体 (JSON)：\n' +
+                      '  order_id  string   必填  订单号，必须以 ord_ 开头\n' +
+                      '  amount    number   必填  退款金额，单位元\n' +
+                      '  reason    string   可选  退款原因，会写入审计日志\n\n' +
+                      '响应：\n' +
+                      '  refund_id  string  退款单 ID\n' +
+                      '  status     string  pending | processing | done\n\n' +
+                      '鉴权：Bearer Token，env=ERP_API_TOKEN',
+                  },
+                  {
+                    label: '用中文描述',
+                    sub: '直接说人话，AI 自己推断字段类型 / 必填 / 默认值',
+                    seed:
+                      '需要一个查询用户订单的工具。调用 https://erp.example.com/api/v2/users/{user_id}/orders（GET）。' +
+                      'user_id 必填走路径，days 可选走 query（默认 7，最大 90）。' +
+                      '鉴权用 ${ERP_API_TOKEN} 的 Bearer Token。响应是 orders 数组，每条含 id / amount / status 三个字段。',
+                  },
+                ]
+              : [
+                  {
+                    label: '增加一个参数',
+                    sub: '描述新字段，AI 把它合并进现有 input_schema',
+                    seed:
+                      '在现有参数基础上加一个 limit 字段：integer 类型，最大 100，默认 20，描述"返回结果的最大条数"。',
+                  },
+                  {
+                    label: '修改鉴权方式',
+                    sub: 'AI 重写 execution.config 里的 auth 部分',
+                    seed:
+                      '把鉴权从当前方式改成 Bearer Token，token 走环境变量 ${ERP_API_TOKEN}。其他字段保持不变。',
+                  },
+                  {
+                    label: '补全参数描述',
+                    sub: 'AI 给每个 input/output 字段补一段给模型看的说明',
+                    seed:
+                      '当前每个参数的描述太简单，请基于工具用途补全，强调"何时该传、不传时的行为、取值范围或格式约束"。',
+                  },
+                  {
+                    label: '换一个端点',
+                    sub: '描述新端点，AI 调整 URL / method / 参数映射',
+                    seed:
+                      '把端点从当前的 v2 切到 v3：URL 改成 https://erp.example.com/api/v3/refunds，method 不变，新增一个必填的 idempotency_key（string）走 header。',
+                  },
+                ]
+          ).map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setAiDescription(s.seed)}
+              className="flex flex-col gap-0.5 rounded-md border border-border bg-background px-3 py-2 text-left transition-colors hover:bg-accent"
+            >
+              <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+                <Sparkles className="h-3 w-3 text-muted-foreground" />
+                {s.label}
+              </span>
+              <span className="pl-[18px] text-[11px] leading-snug text-muted-foreground">
+                {s.sub}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {aiError && (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+            <span>{aiError}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-border p-3">
+        <Textarea
+          value={aiDescription}
+          onChange={(e) => setAiDescription(e.target.value)}
+          placeholder={
+            viewMode === 'create'
+              ? '贴 cURL / 文档片段，或描述这个 API 该怎么调用…'
+              : '描述要改的地方，例如：把鉴权改成 Bearer Token，token 走 env'
+          }
+          rows={3}
+          disabled={aiLoading}
+          className="min-h-[68px] resize-none bg-background font-mono text-[12px] leading-relaxed"
+        />
+        <div className="flex items-center gap-2">
+          <Pill tone="outline" mono>
+            {viewMode === 'create' ? '从描述生成' : '在现有配置上修改'}
+          </Pill>
+          <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">
+            {aiLoading ? '解析中…' : `${aiDescription.length} 字`}
+          </span>
+          <Button
+            size="sm"
+            onClick={handleAIGenerate}
+            disabled={aiLoading || !aiDescription.trim()}
+            className="h-7 gap-1 px-2.5 text-[12px]"
+          >
+            {aiLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            {aiLoading ? '解析中' : (viewMode === 'create' ? '生成配置' : '应用修改')}
+          </Button>
+        </div>
+        <p className="font-mono text-[10px] leading-relaxed text-muted-foreground">
+          {viewMode === 'create'
+            ? '生成后会立即填到左侧表单；你可以再手动调整。'
+            : '会保留工具名 / 启用状态等元数据，只改你描述的部分。'}
+        </p>
+      </div>
+    </>
+  );
+
   return (
     <div className="flex h-full flex-col bg-background">
       <PageHeader
@@ -1272,6 +1428,22 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                 <Pill tone="warning" dot>需审批</Pill>
               )}
             </div>
+
+            {/* Mobile-only AI helper trigger. The desktop aside on the
+                right is hidden under md, so we expose the same panel
+                here through a Drawer. */}
+            <button
+              type="button"
+              onClick={() => setAiSheetOpen(true)}
+              className="mb-5 flex w-full items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-accent md:hidden"
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-foreground" />
+              <span className="flex-1 truncate">
+                <strong className="text-foreground">AI 配置助手</strong>
+                <span className="ml-2">从 cURL / 描述生成配置</span>
+              </span>
+              <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+            </button>
 
       <div>
         {/* Section 1: Basic Info — 12-col grid w/ Field atoms */}
@@ -2018,10 +2190,13 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
           </div>
         </div>
 
-        {/* Right pane — AI assistant. Replaces the legacy inline
-            collapsible card. The existing handleAIGenerate /
-            aiDescription / aiLoading state is wired in unchanged so
-            existing parsing logic still applies. */}
+        {/* Right pane — AI assistant on md+, surfaced through a Drawer
+            on smaller viewports (the trigger button is rendered just
+            above the form body via the same `aiSheetOpen` state). */}
+        <aside className="hidden w-[380px] flex-shrink-0 flex-col border-l border-border bg-muted/30 md:flex">
+          {aiPanelContent}
+        </aside>
+        {false && (
         <aside className="hidden w-[380px] flex-shrink-0 flex-col border-l border-border bg-muted/30 md:flex">
           <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
             <Sparkles className="h-3.5 w-3.5 text-foreground" />
@@ -2168,7 +2343,20 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
             </p>
           </div>
         </aside>
+        )}
       </div>
+
+      {/* Mobile AI assistant — Drawer with the same panel content as
+          the desktop right aside. Triggered from a button rendered at
+          the top of the form body (mobile only). */}
+      <Drawer open={aiSheetOpen} onOpenChange={setAiSheetOpen}>
+        <DrawerContent>
+          <div className="mx-auto flex h-[78vh] w-full max-w-md flex-col">
+            {aiPanelContent}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
       <ConfirmDialog />
     </div>
   );

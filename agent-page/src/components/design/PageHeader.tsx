@@ -44,33 +44,39 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         className,
       )}
     >
-      <SidebarTrigger className="-ml-1 h-7 w-7" />
-      <Separator orientation="vertical" className="h-4" />
-      <nav className="flex min-w-0 items-center gap-2">
-        {breadcrumb.map((crumb, i) => (
-          <React.Fragment key={i}>
-            <span
-              className={cn(
-                'text-[12.5px] truncate',
-                i === breadcrumb.length - 1
-                  ? 'font-medium text-foreground'
-                  : 'text-muted-foreground',
+      <SidebarTrigger className="-ml-1 h-7 w-7 shrink-0" />
+      <Separator orientation="vertical" className="h-4 shrink-0" />
+      <nav className="flex min-w-0 flex-1 items-center gap-2">
+        {breadcrumb.map((crumb, i) => {
+          const isLast = i === breadcrumb.length - 1;
+          // On narrow screens only the final crumb stays visible —
+          // intermediate crumbs / chevrons hide via `hidden sm:flex`
+          // so the breadcrumb chain doesn't wrap on phones.
+          return (
+            <React.Fragment key={i}>
+              <span
+                className={cn(
+                  'text-[12.5px]',
+                  isLast
+                    ? 'min-w-0 truncate font-medium text-foreground'
+                    : 'hidden sm:inline shrink-0 text-muted-foreground',
+                )}
+              >
+                {crumb}
+              </span>
+              {!isLast && (
+                <ChevronRight className="hidden sm:block h-3 w-3 shrink-0 text-muted-foreground/60" />
               )}
-            >
-              {crumb}
-            </span>
-            {i < breadcrumb.length - 1 && (
-              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-            )}
-          </React.Fragment>
-        ))}
+            </React.Fragment>
+          );
+        })}
         {subtitle && (
-          <>
-            <Separator orientation="vertical" className="ml-1 h-3.5" />
+          <span className="hidden md:flex shrink-0 items-center gap-2">
+            <Separator orientation="vertical" className="h-3.5" />
             <span className="truncate text-[11.5px] text-muted-foreground">
               {subtitle}
             </span>
-          </>
+          </span>
         )}
       </nav>
 
