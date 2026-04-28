@@ -9,6 +9,7 @@ import { GlobalManagement } from './components/GlobalManagement';
 import { ObservabilityPanel } from './components/ObservabilityPanel';
 import { Layout } from './components/Layout';
 import { ConversationHistoryPage } from './pages/ConversationHistoryPage';
+import { ApiKeysPage } from './pages/ApiKeysPage';
 import { Button } from './components/ui/button';
 import { Toaster } from './components/ui/toaster';
 import { chatApi, UserInfo } from './api/client';
@@ -21,8 +22,8 @@ import ApiDocs from './pages/ApiDocs';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
-type View = 'chat' | 'history' | 'user-tools' | 'user-skills' | 'user-files' | 'user-management' | 'global-management' | 'observability';
-const ALL_VIEWS: View[] = ['chat', 'history', 'user-tools', 'user-skills', 'user-files', 'user-management', 'global-management', 'observability'];
+type View = 'chat' | 'history' | 'user-tools' | 'user-skills' | 'user-files' | 'api-keys' | 'user-management' | 'global-management' | 'observability';
+const ALL_VIEWS: View[] = ['chat', 'history', 'user-tools', 'user-skills', 'user-files', 'api-keys', 'user-management', 'global-management', 'observability'];
 
 function MainApp() {
   // View lives in the URL (?view=...) so the browser back/forward
@@ -118,6 +119,9 @@ function MainApp() {
         {view === 'user-tools' && <ToolsManager />}
         {view === 'user-skills' && <SkillsManager />}
         {view === 'user-files' && <UserFilesManager />}
+        {view === 'api-keys' && (
+          <ApiKeysPage onNavigateHome={() => setView('chat', { thread: null })} />
+        )}
         {view === 'user-management' && <UserManagement />}
         {view === 'global-management' && <GlobalManagement />}
         {view === 'observability' && <ObservabilityPanel />}

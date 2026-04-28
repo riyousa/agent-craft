@@ -47,6 +47,7 @@ export const Layout: React.FC<LayoutProps> = ({
               {currentView === 'user-tools' && '我的工具'}
               {currentView === 'user-skills' && '我的技能'}
               {currentView === 'user-files' && '文件管理'}
+              {currentView === 'api-keys' && 'API Key'}
               {currentView === 'user-management' && '用户管理'}
               {currentView === 'global-management' && '全局管理'}
               {currentView === 'observability' && '观测面板'}

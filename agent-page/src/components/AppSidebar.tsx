@@ -60,7 +60,6 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/use-toast';
 import { ProfileDialog } from './ProfileDialog';
-import { ApiKeyDialog } from './ApiKeyDialog';
 import { Pill } from './design';
 import { cn } from '../lib/utils';
 import { chatApi, ConversationListItem } from '../api/client';
@@ -98,7 +97,6 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
   const navigate = useNavigate();
   const { toast } = useToast();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [apiKeyOpen, setApiKeyOpen] = useState(false);
 
   // Recent conversations — paginated like the old drawer flow:
   // initial 15, "加载更多" appends another 15 until the API says
@@ -151,7 +149,7 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
     { id: 'tools', icon: Wrench, label: '工具', view: 'user-tools' },
     { id: 'skills', icon: Lightbulb, label: '技能', view: 'user-skills' },
     { id: 'files', icon: FolderOpen, label: '文件', view: 'user-files' },
-    { id: 'api-keys', icon: Key, label: 'API Key', view: '__api-keys', onClick: () => setApiKeyOpen(true) },
+    { id: 'api-keys', icon: Key, label: 'API Key', view: 'api-keys' },
   ];
 
   // Admin items — visible by role; L2 sees user management only.
@@ -387,7 +385,7 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
                   <User className="mr-2 h-3.5 w-3.5" />
                   个人资料
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setApiKeyOpen(true)}>
+                <DropdownMenuItem onClick={() => onNavigate('api-keys')}>
                   <Key className="mr-2 h-3.5 w-3.5" />
                   API Key
                 </DropdownMenuItem>
@@ -403,7 +401,6 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
       </SidebarFooter>
 
       <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
-      <ApiKeyDialog open={apiKeyOpen} onOpenChange={setApiKeyOpen} />
     </Sidebar>
   );
 }
