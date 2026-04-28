@@ -43,7 +43,6 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
@@ -187,7 +186,9 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
     badge?: string;
     onClick?: () => void;
   }> = [
-    { id: 'chat', icon: MessageSquare, label: '对话', view: 'chat', badge: '⌘1' },
+    // 显示 Ctrl 1 而不是 ⌘1，避免与浏览器切换标签页的快捷键混淆。
+    // 实际跳转到对话页的快捷键是 ⌘N / Ctrl+N，详见全局监听。
+    { id: 'chat', icon: MessageSquare, label: '对话', view: 'chat', badge: 'Ctrl 1' },
     { id: 'history', icon: History, label: '对话历史', view: 'history' },
     { id: 'tools', icon: Wrench, label: '工具', view: 'user-tools' },
     { id: 'skills', icon: Lightbulb, label: '技能', view: 'user-skills' },
@@ -342,13 +343,6 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
         {recents.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel>最近对话</SidebarGroupLabel>
-            <SidebarGroupAction
-              title="查看全部"
-              onClick={() => onNavigate('history')}
-              className="text-[11px] text-muted-foreground"
-            >
-              全部
-            </SidebarGroupAction>
             <SidebarGroupContent>
               <SidebarMenu>
                 {recents.map((c) => (
