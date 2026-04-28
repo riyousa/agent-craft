@@ -36,6 +36,7 @@ import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Separator } from './ui/separator';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { Drawer, DrawerContent } from './ui/drawer';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from './ui/table';
@@ -105,6 +106,9 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
 
   // AI Helper state
   const [aiDescription, setAiDescription] = useState('');
+  // Mobile-only AI assistant trigger — desktop right pane hides under
+  // the md breakpoint (would crowd a phone), so we surface a Drawer.
+  const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState('');
 
@@ -669,6 +673,164 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
   // Body unchanged so existing AI helper, validation, built-in tools
   // card all keep working.
   const skillRequiredTools = (formData.required_tools || []).length;
+
+  // Same desktop-aside / mobile-drawer split as the tool editor (Phase
+  // 1.3). Skill-specific templates seed the textarea before the user
+  // hits the send button which calls the existing handleAIGenerate.
+  const skillAiPanelContent = (
+    <>
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+        <Sparkles className="h-3.5 w-3.5 text-foreground" />
+        <span className="text-[12.5px] font-semibold text-foreground">AI 技能助手</span>
+        <Pill tone="info" className="ml-auto">BETA</Pill>
+      </header>
+
+      <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3.5">
+        <div className="rounded-lg border border-border bg-background px-3 py-2.5 text-[12.5px] leading-relaxed text-foreground">
+          描述你想让 Agent 完成的<strong>业务流程</strong>，我会一次性生成<strong>系统提示 / 工具依赖 / 工作流模板 / 启动建议</strong>。可以直接给场景，也可以从已有工具组合开始。
+        </div>
+
+        <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+          示例模板（点击填入）
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {(
+            viewMode === 'create'
+              ? [
+                  {
+                    label: '从业务场景描述',
+                    sub: '说清楚用户要解决什么问题，AI 自己挑工具拼流程',
+                    seed:
+                      '我们运营同学每天要处理用户的退款咨询。流程是：\n' +
+                      '1. 收到用户问题后，先按手机号或订单号查到 ERP 里的订单详情；\n' +
+                      '2. 如果是 7 天内的、金额 < 500 的订单，直接发起退款；\n' +
+                      '3. 金额 ≥ 500 或超过 7 天的，需要主管审批；\n' +
+                      '4. 审批通过后调用退款工具，并在飞书 #运营-订单 群同步结果。\n' +
+                      '请生成一个"订单退款助理"技能。',
+                  },
+                  {
+                    label: '从工具组合开始',
+                    sub: '已经有这些工具，告诉 AI 你想怎么串',
+                    seed:
+                      '我已经有这些工具：lookup_orders（查订单）、create_refund（创建退款，需审批）、send_lark_message（发飞书消息）。' +
+                      '希望按这个顺序串：先用 lookup_orders 拉订单，校验状态是 paid 后调 create_refund，' +
+                      '审批通过自动执行，最后用 send_lark_message 在群里同步。' +
+                      '帮我生成对应的系统提示和工作流模板。',
+                  },
+                  {
+                    label: '从对话样本',
+                    sub: '贴一段理想的用户对话，AI 反推 prompt 模板',
+                    seed:
+                      '理想的对话样本：\n' +
+                      '用户：帮我看下 ord_8821 这单能退吗\n' +
+                      'Agent：（调用 lookup_orders）已确认，订单状态 paid，金额 1280。是否需要发起退款？\n' +
+                      '用户：嗯发起一下，原因是商品质量问题\n' +
+                      'Agent：（调用 create_refund，触发审批）已提交审批，等主管确认后会自动处理。\n\n' +
+                      '基于这个样本生成"订单退款助理"技能。',
+                  },
+                ]
+              : [
+                  {
+                    label: '优化系统提示',
+                    sub: 'AI 重写 prompt 模板，更明确地约束行为',
+                    seed:
+                      '当前的系统提示对"何时该走审批"说明不够。请重写它，明确：\n' +
+                      '1. 任何金额变更前必须先用 lookup_orders 确认订单状态；\n' +
+                      '2. 单笔金额 ≥ 1000 一律走审批；\n' +
+                      '3. 审批通过后才执行 create_refund；\n' +
+                      '4. 操作完成必须发飞书消息同步。',
+                  },
+                  {
+                    label: '加一个工具到流程',
+                    sub: 'AI 把新工具插进现有工作流的合适位置',
+                    seed:
+                      '在现有流程中加入 query_warehouse（查库存）工具：' +
+                      '退款前先查库存状态，如果商品已发货且未签收，先创建退货单再退款；' +
+                      '已签收则直接退款。请更新工作流模板和系统提示。',
+                  },
+                  {
+                    label: '调整审批策略',
+                    sub: 'AI 修改 requires_approval 逻辑或阈值',
+                    seed:
+                      '把审批阈值从金额 ≥ 1000 改成 ≥ 500，并新增一个条件：' +
+                      '如果用户最近 30 天内已经发起过 ≥ 3 次退款，无论金额多少都走审批。',
+                  },
+                  {
+                    label: '补全启动建议',
+                    sub: 'AI 推荐 4 条贴合本技能的开场问题',
+                    seed:
+                      '请基于当前技能的功能（订单退款 + 库存查询 + 飞书通知），' +
+                      '推荐 4 条贴近运营同学日常工作的开场问题，每条不超过 30 字。',
+                  },
+                ]
+          ).map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setAiDescription(s.seed)}
+              className="flex flex-col gap-0.5 rounded-md border border-border bg-background px-3 py-2 text-left transition-colors hover:bg-accent"
+            >
+              <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+                <Sparkles className="h-3 w-3 text-muted-foreground" />
+                {s.label}
+              </span>
+              <span className="pl-[18px] text-[11px] leading-snug text-muted-foreground">
+                {s.sub}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {aiError && (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+            <span>{aiError}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-border p-3">
+        <Textarea
+          value={aiDescription}
+          onChange={(e) => setAiDescription(e.target.value)}
+          placeholder={
+            viewMode === 'create'
+              ? '描述你想让 Agent 完成的业务流程…'
+              : '描述要改的地方，例如：把审批阈值改成 500 元'
+          }
+          rows={3}
+          disabled={aiGenerating}
+          className="min-h-[68px] resize-none bg-background text-[12px] leading-relaxed"
+        />
+        <div className="flex items-center gap-2">
+          <Pill tone="outline" mono>
+            {viewMode === 'create' ? '从描述生成' : '在现有技能上修改'}
+          </Pill>
+          <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">
+            {aiGenerating ? '生成中…' : `${aiDescription.length} 字`}
+          </span>
+          <Button
+            size="sm"
+            onClick={handleAIGenerate}
+            disabled={aiGenerating || !aiDescription.trim()}
+            className="h-7 gap-1 px-2.5 text-[12px]"
+          >
+            {aiGenerating
+              ? <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-solid border-current border-r-transparent" />
+              : <Sparkles className="h-3 w-3" />}
+            {aiGenerating ? '生成中' : (viewMode === 'create' ? '生成技能' : '应用修改')}
+          </Button>
+        </div>
+        <p className="font-mono text-[10px] leading-relaxed text-muted-foreground">
+          {viewMode === 'create'
+            ? '生成后会立即填到左侧表单；你可以再手动调整 prompt 模板和工具依赖。'
+            : '会保留技能名 / 启用状态等元数据，只改你描述的部分。'}
+        </p>
+      </div>
+    </>
+  );
+
   return (
     <div className="flex h-full flex-col bg-background">
       <PageHeader
@@ -710,6 +872,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
         }
       />
 
+      <div className="flex flex-1 min-h-0">
       <div className="flex-1 overflow-y-auto">
         {/* Full-bleed page body — content fills the entire main pane.
             No max-w cap so the form expands to whatever the page
@@ -741,8 +904,25 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
             )}
           </div>
 
+          {/* Mobile-only AI helper trigger. Desktop aside hides under
+              md, so we surface the same panel via a Drawer here. */}
+          <button
+            type="button"
+            onClick={() => setAiSheetOpen(true)}
+            className="mb-5 flex w-full items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-accent md:hidden"
+          >
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-foreground" />
+            <span className="flex-1 truncate">
+              <strong className="text-foreground">AI 技能助手</strong>
+              <span className="ml-2">从描述生成系统提示与工作流</span>
+            </span>
+            <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+          </button>
+
       <div className="space-y-8">
-        {/* AI Helper Section */}
+        {/* Old inline AI Helper Card removed — replaced by the
+            desktop right aside / mobile Drawer pattern below. */}
+        {false && (
         <Collapsible defaultOpen={false}>
           <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-secondary/5">
             <CollapsibleTrigger asChild>
@@ -808,6 +988,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
             </CollapsibleContent>
           </Card>
         </Collapsible>
+        )}
 
         {/* Basic Information — 12-col grid w/ Field atoms */}
         <H2 first>基础信息</H2>
@@ -1186,6 +1367,22 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
       </div>
         </div>
       </div>
+
+      {/* Right pane — desktop AI assistant aside (md+). */}
+      <aside className="hidden w-[380px] flex-shrink-0 flex-col border-l border-border bg-muted/30 md:flex">
+        {skillAiPanelContent}
+      </aside>
+      </div>
+
+      {/* Mobile AI assistant Drawer with the same panel content. */}
+      <Drawer open={aiSheetOpen} onOpenChange={setAiSheetOpen}>
+        <DrawerContent>
+          <div className="mx-auto flex h-[78vh] w-full max-w-md flex-col">
+            {skillAiPanelContent}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
       <ConfirmDialog />
     </div>
   );
