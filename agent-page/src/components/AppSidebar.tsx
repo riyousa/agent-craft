@@ -31,8 +31,6 @@ import {
   Users,
   Key,
   Activity,
-  Plus,
-  Search,
   Settings,
   Eye,
   ShieldCheck,
@@ -135,44 +133,6 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
     navigate('/login');
   };
 
-  const handleSearch = () => {
-    toast({
-      title: '搜索即将开放',
-      description: '后端尚未提供全文搜索接口，可临时使用「对话历史」页内搜索。',
-    });
-  };
-
-  // Global keyboard shortcuts. ⌘N (Ctrl+N on Win/Linux) starts a fresh
-  // chat thread, ⌘K opens the search affordance. Skip when the user is
-  // actively typing into a form field so we don't steal real keystrokes.
-  useEffect(() => {
-    const isEditable = (el: EventTarget | null): boolean => {
-      if (!(el instanceof HTMLElement)) return false;
-      const tag = el.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
-      if (el.isContentEditable) return true;
-      return false;
-    };
-    const onKey = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
-      const key = e.key.toLowerCase();
-      if (key === 'n') {
-        if (isEditable(e.target)) return;
-        e.preventDefault();
-        onNavigate('chat');
-      } else if (key === 'k') {
-        // ⌘K can be intercepted from anywhere — that's the convention.
-        e.preventDefault();
-        handleSearch();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // handleSearch is stable enough — it only closes over toast.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onNavigate]);
-
   const initial = (user?.name?.charAt(0) || 'U').toUpperCase();
   const isAdmin = (user?.role_level || 0) >= 2;
   const isSuperAdmin = (user?.role_level || 0) >= 3;
@@ -186,9 +146,7 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
     badge?: string;
     onClick?: () => void;
   }> = [
-    // 显示 Ctrl 1 而不是 ⌘1，避免与浏览器切换标签页的快捷键混淆。
-    // 实际跳转到对话页的快捷键是 ⌘N / Ctrl+N，详见全局监听。
-    { id: 'chat', icon: MessageSquare, label: '对话', view: 'chat', badge: 'Ctrl 1' },
+    { id: 'chat', icon: MessageSquare, label: '对话', view: 'chat' },
     { id: 'history', icon: History, label: '对话历史', view: 'history' },
     { id: 'tools', icon: Wrench, label: '工具', view: 'user-tools' },
     { id: 'skills', icon: Lightbulb, label: '技能', view: 'user-skills' },
@@ -233,32 +191,6 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
       </SidebarHeader>
 
       <SidebarContent>
-        {/* ─── Quick actions: new chat + search ───────────── */}
-        <SidebarGroup className="pt-2 pb-1">
-          <SidebarGroupContent>
-            <button
-              type="button"
-              onClick={() => onNavigate('chat')}
-              className="group/action flex h-8 w-full items-center gap-2 rounded-md border border-sidebar-border bg-sidebar px-2.5 text-left text-[12.5px] font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span className="flex-1">新建对话</span>
-              <kbd className="rounded border border-sidebar-border/70 bg-sidebar-accent/40 px-1.5 py-0 font-mono text-[9.5px] leading-tight text-muted-foreground">
-                ⌘N
-              </kbd>
-            </button>
-            <button
-              type="button"
-              onClick={handleSearch}
-              className="mt-1 flex h-7 w-full items-center gap-2 rounded-md px-2.5 text-left text-[12px] text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-            >
-              <Search className="h-3 w-3" />
-              <span className="flex-1">搜索…</span>
-              <kbd className="font-mono text-[9.5px] text-muted-foreground/70">⌘K</kbd>
-            </button>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
         {/* ─── Workspace ──────────────────────────────────── */}
         <SidebarGroup>
           <SidebarGroupLabel>工作区</SidebarGroupLabel>
