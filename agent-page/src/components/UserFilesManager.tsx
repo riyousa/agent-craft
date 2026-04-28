@@ -1,21 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { userApi, UserFile, WorkspaceInfo } from '../api/user';
 import {
   Upload, Download, Trash2, File, FileText,
   Image as ImageIcon, Video, Music, Archive, Code,
   Loader2, HardDrive, FolderOpen, Sparkles, FlaskConical, Files, Paperclip, Link2, Copy, Eye,
+  Search, MoreHorizontal,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
+import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from './ui/table';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
 import { cn } from '../lib/utils';
-import { FileThumb } from './design';
+import {
+  FileThumb, PageHeader, PageTitle, Toolbar, Pill, EmptyState,
+} from './design';
 
 export const UserFilesManager: React.FC = () => {
   const { toast } = useToast();
@@ -26,6 +37,7 @@ export const UserFilesManager: React.FC = () => {
   const [selectedFileType, setSelectedFileType] = useState<string>('');
   const [uploading, setUploading] = useState(false);
   const [sortBy, setSortBy] = useState<'time-desc' | 'time-asc' | 'name' | 'size'>('time-desc');
+  const [searchQuery, setSearchQuery] = useState('');
   const [previewFile, setPreviewFile] = useState<UserFile | null>(null);
   const [previewContent, setPreviewContent] = useState<string>('');
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -226,152 +238,260 @@ export const UserFilesManager: React.FC = () => {
     return sortBy === 'time-asc' ? ta - tb : tb - ta;
   });
 
+  // Filter against current search query (sortedFiles is already
+  // sorted by sortBy + filtered by selectedFileType via loadFiles).
+  const visibleFiles = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return sortedFiles;
+    return sortedFiles.filter((f) => {
+      const hay = `${f.filename} ${f.description || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [sortedFiles, searchQuery]);
+
   return (
-    <div className="container mx-auto p-6 max-w-7xl">
-      {/* Header: stats + upload */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <p className="text-sm text-muted-foreground">
-            共 {files.length} 个文件
-          </p>
+    <div className="flex h-full flex-col bg-background">
+      <PageHeader
+        breadcrumb={['工作区', '文件']}
+        subtitle={
+          workspaceInfo
+            ? `共 ${files.length} 项 · ${workspaceInfo.used_storage_mb.toFixed(1)} MB / ${workspaceInfo.max_storage_mb} MB`
+            : `共 ${files.length} 项`
+        }
+      />
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="w-full px-7 pt-6 pb-12">
+          <PageTitle
+            title="文件"
+            description="上传文件用于 Agent 引用、解析或作为知识库片段。会话中引用的文件也会归档到此。"
+            actions={
+              <label>
+                <input type="file" onChange={handleFileUpload} disabled={uploading} className="hidden" />
+                <Button disabled={uploading} size="sm" asChild className="gap-1.5">
+                  <span className="cursor-pointer">
+                    {uploading ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        上传中...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-3.5 w-3.5" />
+                        上传文件
+                      </>
+                    )}
+                  </span>
+                </Button>
+              </label>
+            }
+          />
+
+          {/* Storage usage card — design-spec quota row */}
           {workspaceInfo && (
-            <>
-              <Separator orientation="vertical" className="h-4" />
-              <p className="text-sm text-muted-foreground">
-                {workspaceInfo.used_storage_mb.toFixed(1)} / {workspaceInfo.max_storage_mb} MB
-              </p>
-            </>
-          )}
-          <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
-            <SelectTrigger className="w-32 h-8"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="time-desc">最新优先</SelectItem>
-              <SelectItem value="time-asc">最早优先</SelectItem>
-              <SelectItem value="name">按名称</SelectItem>
-              <SelectItem value="size">按大小</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <label>
-          <input type="file" onChange={handleFileUpload} disabled={uploading} className="hidden" />
-          <Button disabled={uploading} asChild>
-            <span className="cursor-pointer">
-              {uploading
-                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />上传中...</>
-                : <><Upload className="w-4 h-4 mr-2" />上传文件</>}
-            </span>
-          </Button>
-        </label>
-      </div>
-
-      {/* Storage bar + Tabs */}
-      {workspaceInfo && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
-            <span>存储空间</span>
-            <span>{storagePercent.toFixed(0)}%</span>
-          </div>
-          <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-500",
-                storagePercent > 90 ? "bg-chart-5" : storagePercent > 70 ? "bg-chart-4" : "bg-primary"
-              )}
-              style={{ width: `${storagePercent}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* File Type Tabs */}
-      <div className="flex gap-1 mb-6">
-        {fileTypeTabs.map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <Button
-              key={tab.id}
-              variant={selectedFileType === tab.id ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setSelectedFileType(tab.id)}
-            >
-              <Icon className="w-4 h-4 mr-1.5" />
-              {tab.label}
-            </Button>
-          );
-        })}
-      </div>
-
-      {/* Files */}
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
-        </div>
-      ) : files.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <FolderOpen className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-xl font-semibold mb-2">暂无文件</h3>
-            <p className="text-muted-foreground">点击右上角"上传文件"开始使用</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {sortedFiles.map((file) => (
-            <Card key={file.id} className="flex flex-col transition-all hover:shadow-md">
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-3">
-                  <FileThumb type={file.filename} />
-
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="text-sm truncate">{file.filename}</CardTitle>
-                    <CardDescription className="text-xs">
-                      {formatFileSize(file.size_bytes)} · {formatDate(file.created_at)}
-                    </CardDescription>
-                  </div>
+            <div className="mb-5 flex items-center gap-4 rounded-lg border border-border bg-card p-3.5">
+              <div className="flex-1">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="text-[12.5px] font-medium text-foreground">存储用量</span>
+                  <span className="font-mono text-[11.5px] text-muted-foreground">
+                    {workspaceInfo.used_storage_mb.toFixed(1)} MB / {workspaceInfo.max_storage_mb} MB
+                  </span>
+                  <span className="ml-auto text-[11px] text-muted-foreground">
+                    {storagePercent.toFixed(1)}% 已使用
+                  </span>
                 </div>
-              </CardHeader>
-              <CardContent className="flex-1 pb-3">
-                <div className="flex gap-2 flex-wrap">
-                  <Badge variant="outline" className="text-xs">{file.file_type}</Badge>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all duration-500',
+                      storagePercent > 90
+                        ? 'bg-destructive'
+                        : storagePercent > 70
+                          ? 'bg-chart-4'
+                          : 'bg-foreground',
+                    )}
+                    style={{ width: `${Math.max(0.5, storagePercent)}%` }}
+                  />
                 </div>
-                {file.description && (
-                  <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{file.description}</p>
-                )}
-              </CardContent>
-              <Separator />
-              <div className="flex items-center justify-end gap-1 p-3">
-                {getPreviewType(file.filename) !== 'none' && (
-                  <Button variant="ghost" size="sm" onClick={() => handlePreview(file)}>
-                    <Eye className="w-4 h-4 mr-1.5" />
-                    预览
-                  </Button>
-                )}
-                {file.file_type === 'assets' && (
-                  <Button variant="ghost" size="sm" onClick={() => copyAssetUrl(file)}>
-                    <Link2 className="w-4 h-4 mr-1.5" />
-                    复制链接
-                  </Button>
-                )}
-                <Button variant="ghost" size="sm" onClick={() => handleDownload(file)}>
-                  <Download className="w-4 h-4 mr-1.5" />
-                  下载
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDelete(file.id, file.filename)}
-                  className="text-chart-5 hover:text-chart-5"
-                >
-                  <Trash2 className="w-4 h-4 mr-1.5" />
-                  删除
-                </Button>
               </div>
-            </Card>
-          ))}
+            </div>
+          )}
+
+          {/* File-type tabs (全部 / 上传 / 生成 / 沙箱 / 素材) */}
+          <div className="mb-4 flex flex-wrap gap-1">
+            {fileTypeTabs.map((tab) => {
+              const Icon = tab.icon;
+              const active = selectedFileType === tab.id;
+              return (
+                <Button
+                  key={tab.id}
+                  variant={active ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setSelectedFileType(tab.id)}
+                  className="h-7 gap-1.5 text-[12px]"
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {tab.label}
+                </Button>
+              );
+            })}
+          </div>
+
+          <Toolbar>
+            <div className="relative flex-1 min-w-[240px]">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="搜索文件名 / 描述…"
+                className="h-8 pl-8 text-[12.5px]"
+              />
+            </div>
+            <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
+              <SelectTrigger className="h-8 w-[120px] text-[12.5px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="time-desc">最新优先</SelectItem>
+                <SelectItem value="time-asc">最早优先</SelectItem>
+                <SelectItem value="name">按名称</SelectItem>
+                <SelectItem value="size">按大小</SelectItem>
+              </SelectContent>
+            </Select>
+          </Toolbar>
+
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              加载中...
+            </div>
+          ) : visibleFiles.length === 0 ? (
+            files.length === 0 ? (
+              <EmptyState
+                icon={<FolderOpen className="h-5 w-5" />}
+                title="暂无文件"
+                description="点击「上传文件」开始使用，或在对话里引用文件后回到这里查看。"
+              />
+            ) : (
+              <EmptyState
+                title="没有匹配的文件"
+                description="调整搜索关键词或切换类型 Tab 再试一次。"
+              />
+            )
+          ) : (
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <Table className="table-fixed min-w-[760px]">
+                <colgroup>
+                  <col />
+                  <col className="w-[80px]" />
+                  <col className="w-[100px]" />
+                  <col className="w-[100px]" />
+                  <col className="w-[120px]" />
+                  <col className="w-[60px]" />
+                </colgroup>
+                <TableHeader>
+                  <TableRow className="border-b-border bg-muted/40 hover:bg-muted/40">
+                    <TableHead className="h-9 px-3">文件名</TableHead>
+                    <TableHead className="h-9 px-3">类型</TableHead>
+                    <TableHead className="h-9 px-3 text-right">大小</TableHead>
+                    <TableHead className="h-9 px-3">来源</TableHead>
+                    <TableHead className="h-9 px-3">上传于</TableHead>
+                    <TableHead className="h-9 px-3"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visibleFiles.map((file) => {
+                    const ext = file.filename.split('.').pop()?.toUpperCase() || '——';
+                    const sourceLabel =
+                      file.file_type === 'assets'
+                        ? '素材'
+                        : file.file_type === 'generated'
+                          ? '生成'
+                          : file.file_type === 'sandbox'
+                            ? '沙箱'
+                            : '上传';
+                    const previewable = getPreviewType(file.filename) !== 'none';
+                    return (
+                      <TableRow
+                        key={file.id}
+                        onClick={previewable ? () => handlePreview(file) : undefined}
+                        className={previewable ? 'cursor-pointer' : 'cursor-default'}
+                      >
+                        <TableCell className="min-w-0 px-3 py-1.5">
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <FileThumb type={file.filename} size="sm" />
+                            <div className="flex min-w-0 flex-col">
+                              <span className="truncate text-[13px] font-medium text-foreground">
+                                {file.filename}
+                              </span>
+                              {file.description && (
+                                <span className="truncate text-[11.5px] leading-tight text-muted-foreground">
+                                  {file.description}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5 font-mono text-[11px] uppercase text-muted-foreground">
+                          {ext}
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
+                          {formatFileSize(file.size_bytes)}
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5">
+                          <Pill tone="outline">{sourceLabel}</Pill>
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5 text-[12px] text-muted-foreground whitespace-nowrap">
+                          {formatDate(file.created_at)}
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                              {previewable && (
+                                <DropdownMenuItem onClick={() => handlePreview(file)}>
+                                  <Eye className="mr-2 h-3.5 w-3.5" />
+                                  预览
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem onClick={() => handleDownload(file)}>
+                                <Download className="mr-2 h-3.5 w-3.5" />
+                                下载
+                              </DropdownMenuItem>
+                              {file.file_type === 'assets' && (
+                                <DropdownMenuItem onClick={() => copyAssetUrl(file)}>
+                                  <Link2 className="mr-2 h-3.5 w-3.5" />
+                                  复制链接
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => handleDelete(file.id, file.filename)}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                删除
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </div>
-      )}
+      </div>
       {/* Preview Dialog */}
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && closePreview()}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col">
