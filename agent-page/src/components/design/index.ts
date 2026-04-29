@@ -1,6 +1,6 @@
 /**
  * Design system v3 — re-exports atoms used to compose every redesigned
- * page. See `design_update.md` Phase 0 for the inventory and rationale.
+ * page. v3 design system — atoms documented inline in each file.
  *
  * Convention: callers import from `components/design`, not the individual
  * files, so we have one swap-point if we later collapse atoms or expose
@@ -17,3 +17,4 @@ export { EmptyState } from './EmptyState';
 export { H2 } from './H2';
 export { Field } from './Field';
 export { AutoGrowTextarea } from './AutoGrowTextarea';
+export { TablePagination } from './TablePagination';

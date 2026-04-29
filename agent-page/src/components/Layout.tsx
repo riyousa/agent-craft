@@ -16,6 +16,9 @@ interface LayoutProps {
   /** Forwarded to the sidebar's "最近对话" rows so clicking one loads
    *  that thread directly into chat instead of routing via /history. */
   onSelectThread?: (threadId: string) => void;
+  /** Bumped from the chat page after a turn completes so the sidebar
+   *  re-fetches its 最近对话 list without a hard refresh. */
+  recentsRefreshKey?: number;
 }
 
 export const Layout: React.FC<LayoutProps> = ({
@@ -23,6 +26,7 @@ export const Layout: React.FC<LayoutProps> = ({
   currentView,
   onNavigate,
   onSelectThread,
+  recentsRefreshKey,
 }) => {
   // Pages that render their own <PageHeader/> (v3 design migration)
   // suppress this default header so we don't end up with two stacked
@@ -34,6 +38,7 @@ export const Layout: React.FC<LayoutProps> = ({
         currentView={currentView}
         onNavigate={onNavigate}
         onSelectThread={onSelectThread}
+        recentsRefreshKey={recentsRefreshKey}
       />
       <SidebarInset className="min-h-0">
         {!appHeaderHidden && (
@@ -49,7 +54,9 @@ export const Layout: React.FC<LayoutProps> = ({
               {currentView === 'user-files' && '文件管理'}
               {currentView === 'api-keys' && 'API Key'}
               {currentView === 'user-management' && '用户管理'}
-              {currentView === 'global-management' && '全局管理'}
+              {currentView === 'admin-tools' && '全局工具'}
+              {currentView === 'admin-skills' && '全局技能'}
+              {currentView === 'admin-models' && '模型管理'}
               {currentView === 'observability' && '观测面板'}
             </h1>
           </div>

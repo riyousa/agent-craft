@@ -59,6 +59,14 @@ class ConversationHistory(Base):
     message_count = Column(Integer, default=0)
     last_message = Column(Text)
 
+    # Per-conversation aggregates surfaced in 对话历史:
+    # `tokens_total` accumulates `usage.total_tokens` from every LLM call;
+    # `tools_called` increments once per tool/skill invocation; `is_starred`
+    # is the user-toggleable favorite flag exposed in the history list.
+    is_starred = Column(Boolean, default=False, nullable=False)
+    tokens_total = Column(BigInteger, default=0, nullable=False)
+    tools_called = Column(Integer, default=0, nullable=False)
+
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 

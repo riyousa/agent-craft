@@ -84,7 +84,14 @@ export const UserFilesManager: React.FC = () => {
   const handleDelete = (fileId: number, filename: string) => {
     showConfirm({
       title: '确认删除',
-      description: `确定要删除文件"${filename}"吗？此操作无法撤销。`,
+      description: (
+        <>
+          <span>确定要删除该文件吗？此操作无法撤销。</span>
+          <code className="mt-2 block break-all rounded bg-muted px-2 py-1 font-mono text-xs text-foreground">
+            {filename}
+          </code>
+        </>
+      ),
       confirmText: '删除', variant: 'danger',
       onConfirm: async () => {
         try {

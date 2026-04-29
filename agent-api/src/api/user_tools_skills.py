@@ -606,3 +606,116 @@ async def delete_user_skill(
     await db.commit()
 
     return {"message": "Skill deleted successfully"}
+
+
+# ========== Metrics ==========
+#
+# `tool_invocations` and `skill_runs` are append-only logs written from
+# `agent/nodes.py::execute_tools_with_audit`. The list pages aggregate
+# them in 7-day windows; we return all rows up-front since the total
+# names per response is bounded by the user's tool/skill library size.
+
+
+@router.get("/tools/metrics")
+async def list_tool_metrics(
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Aggregate calls_7d / p95_ms per tool name for the current user.
+
+    Backend_update.md § 2 — feeds `ToolsManager.tsx` 7天调用 + P95.
+    """
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func
+    from src.models import ToolInvocation
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    # PG: use percentile_disc; SQLite fallback below ignores p95.
+    is_pg = db.bind and db.bind.dialect.name == "postgresql"
+
+    if is_pg:
+        p95_expr = func.percentile_disc(0.95).within_group(
+            ToolInvocation.latency_ms.asc(),
+        )
+        rows = (await db.execute(
+            select(
+                ToolInvocation.tool_name,
+                func.count().label("calls_7d"),
+                p95_expr.label("p95_ms"),
+            )
+            .where(
+                ToolInvocation.user_id == user_id,
+                ToolInvocation.created_at >= cutoff,
+            )
+            .group_by(ToolInvocation.tool_name)
+        )).all()
+        return {
+            r[0]: {"calls_7d": int(r[1] or 0), "p95_ms": int(r[2] or 0)}
+            for r in rows
+        }
+    else:
+        # SQLite: percentile fns not available; fall back to MAX as a
+        # rough upper bound. Devs notice and don't read into the number.
+        rows = (await db.execute(
+            select(
+                ToolInvocation.tool_name,
+                func.count().label("calls_7d"),
+                func.max(ToolInvocation.latency_ms).label("p95_ms"),
+            )
+            .where(
+                ToolInvocation.user_id == user_id,
+                ToolInvocation.created_at >= cutoff,
+            )
+            .group_by(ToolInvocation.tool_name)
+        )).all()
+        return {
+            r[0]: {"calls_7d": int(r[1] or 0), "p95_ms": int(r[2] or 0)}
+            for r in rows
+        }
+
+
+@router.get("/skills/metrics")
+async def list_skill_metrics(
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Aggregate runs_7d / users_using / p95_ms per skill name.
+
+    `users_using` is global (across all users in the last 7d) — that's
+    the design's "how many people are using this skill" metric. The
+    auth check is per-user only because the rest of the response (your
+    own runs / latency) needs to be scoped; users_using is the same
+    number for everyone reading. Backend_update.md § 3.
+    """
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func, distinct
+    from src.models import SkillRun
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    is_pg = db.bind and db.bind.dialect.name == "postgresql"
+
+    if is_pg:
+        p95_expr = func.percentile_disc(0.95).within_group(
+            SkillRun.total_latency_ms.asc(),
+        )
+    else:
+        p95_expr = func.max(SkillRun.total_latency_ms)
+
+    rows = (await db.execute(
+        select(
+            SkillRun.skill_name,
+            func.count().label("runs_7d"),
+            func.count(distinct(SkillRun.user_id)).label("users_using"),
+            p95_expr.label("p95_ms"),
+        )
+        .where(SkillRun.created_at >= cutoff)
+        .group_by(SkillRun.skill_name)
+    )).all()
+    return {
+        r[0]: {
+            "runs_7d": int(r[1] or 0),
+            "users_using": int(r[2] or 0),
+            "p95_ms": int(r[3] or 0),
+        }
+        for r in rows
+    }

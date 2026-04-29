@@ -13,18 +13,17 @@ import {
   Plus,
   Edit2,
   Trash2,
+  Send,
   AlertCircle,
   Lock,
   Unlock,
   Copy,
   ChevronDown,
   ChevronRight,
-  Pause,
   Play,
   Lightbulb,
   Zap,
   Search,
-  MoreHorizontal,
   CheckCircle2,
 } from 'lucide-react';
 import { Button } from './ui/button';
@@ -39,14 +38,12 @@ import { Drawer, DrawerContent } from './ui/drawer';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from './ui/table';
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
-} from './ui/dropdown-menu';
+import { Switch } from './ui/switch';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
-import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field, AutoGrowTextarea } from './design';
-import { metricsFor as skillMetricsFor, formatRuns } from '../mock/skill_metrics';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field, AutoGrowTextarea, TablePagination } from './design';
+import { formatRuns, formatLatencyMs } from '../lib/formatters';
+import type { SkillMetricsMap } from '../api/user';
 import { cn } from '../lib/utils';
 
 type ViewMode = 'list' | 'create' | 'edit';
@@ -83,9 +80,12 @@ interface SkillsManagerProps {
   api?: SkillsApi;
   toolsApi?: ToolsApi;
   onBack?: () => void;
+  /** Optional row-level assign action — when provided AND we're in
+   *  admin mode, the table renders a Send icon button next to Edit. */
+  onAssignClick?: (skill: UserSkill) => void;
 }
 
-export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onBack }) => {
+export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onBack, onAssignClick }) => {
   const skillsApi: SkillsApi = api || userApi;
   const toolsApiForDeps: ToolsApi = toolsApi || userApi;
   const isAdminMode = !!api;
@@ -100,6 +100,11 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
   const [searchQuery, setSearchQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'user_created' | 'admin_assigned'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled' | 'approval'>('all');
+  // Pagination is client-side; the unsliced `tools` array is what the
+  // skill editor's dependency picker reads, so paginating the table
+  // doesn't shrink what models can pick from.
+  const SKILLS_PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedSkill, setSelectedSkill] = useState<UserSkill | null>(null);
 
@@ -133,6 +138,11 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
     requires_approval: false,
   });
 
+  // Keyed by `skill.name`; one fetch per list load. Powers the
+  // 7天运行 / P95 columns; admin pages skip since the admin API
+  // doesn't expose metrics.
+  const [skillMetrics, setSkillMetrics] = useState<SkillMetricsMap>({});
+
   useEffect(() => {
     loadSkills();
     loadTools();
@@ -148,8 +158,16 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
   const loadSkills = async () => {
     setLoading(true);
     try {
-      const data = await skillsApi.listSkills();
+      const [data, metrics] = await Promise.all([
+        skillsApi.listSkills(),
+        // Admin skill API doesn't expose metrics; only the per-user
+        // endpoint does. Skip silently in admin mode.
+        isAdminMode
+          ? Promise.resolve({} as SkillMetricsMap)
+          : userApi.listSkillMetrics().catch(() => ({} as SkillMetricsMap)),
+      ]);
       setSkills(data);
+      setSkillMetrics(metrics);
     } catch (error) {
       toast({ variant: "destructive", title: "加载失败", description: "无法加载技能列表" });
     } finally {
@@ -441,14 +459,21 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
       return true;
     });
 
+    const totalPages = Math.max(1, Math.ceil(visibleSkills.length / SKILLS_PAGE_SIZE));
+    const safePage = Math.min(page, totalPages);
+    const pagedSkills = visibleSkills.slice(
+      (safePage - 1) * SKILLS_PAGE_SIZE,
+      safePage * SKILLS_PAGE_SIZE,
+    );
+
     const adminCount = skills.filter((s) => s.source === 'admin_assigned').length;
     const userCount = skills.filter((s) => s.source === 'user_created' || !s.source).length;
 
     return (
       <div className="flex h-full flex-col bg-background">
         <PageHeader
-          breadcrumb={['工作区', '技能']}
-          subtitle={`${adminCount} 全局 · ${userCount} 私有`}
+          breadcrumb={isAdminMode ? ['管理', '全局技能'] : ['工作区', '技能']}
+          subtitle={isAdminMode ? `共 ${skills.length} 个全局技能` : `${adminCount} 全局 · ${userCount} 私有`}
           actions={
             onBack ? (
               <Button variant="ghost" size="sm" onClick={onBack} className="h-7 px-2 text-[12px]">
@@ -461,8 +486,10 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
         <div className="flex-1 overflow-y-auto">
           <div className="w-full px-7 pt-6 pb-12">
             <PageTitle
-              title="技能"
-              description="技能把多个工具按既定流程编排成 Agent 可一键调用的能力。可以为不同业务场景沉淀工作流，附带 prompt 模板和审批策略。"
+              title={isAdminMode ? '全局技能' : '技能'}
+              description={isAdminMode
+                ? '管理员维护的技能库。每条技能由若干工具编排而成，可整体下发给用户或调整启用状态。'
+                : '技能把多个工具按既定流程编排成 Agent 可一键调用的能力。可以为不同业务场景沉淀工作流，附带 prompt 模板和审批策略。'}
               actions={
                 <Button size="sm" onClick={handleCreate} className="gap-1.5">
                   <Plus className="h-3.5 w-3.5" />
@@ -476,12 +503,12 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
                   placeholder="搜索技能名、描述…"
                   className="h-8 pl-8 text-[12.5px]"
                 />
               </div>
-              <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as typeof sourceFilter)}>
+              <Select value={sourceFilter} onValueChange={(v) => { setSourceFilter(v as typeof sourceFilter); setPage(1); }}>
                 <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
                   <SelectValue />
                 </SelectTrigger>
@@ -491,7 +518,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                   <SelectItem value="admin_assigned">全局</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+              <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as typeof statusFilter); setPage(1); }}>
                 <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
                   <SelectValue />
                 </SelectTrigger>
@@ -559,8 +586,14 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {visibleSkills.map((s) => {
-                      const m = skillMetricsFor(s.name, !!s.enabled);
+                    {pagedSkills.map((s) => {
+                      // Real per-skill metrics from `/user/skills/metrics`.
+                      // Disabled skills sit at zero (no recorded runs).
+                      const raw = skillMetrics[s.name];
+                      const m = {
+                        runs_7d: s.enabled && raw ? raw.runs_7d : 0,
+                        p95: formatLatencyMs(s.enabled && raw ? raw.p95_ms : 0),
+                      };
                       const updated = s.created_at
                         ? new Date(s.created_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
                         : '——';
@@ -591,15 +624,25 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                             {(s.required_tools || []).length}
                           </TableCell>
                           <TableCell className="px-3 py-1.5">
-                            {/* Status column shows just 启用 / 停用 — the
-                                需审批 badge already lives next to the
-                                name on the title cell, no need to
-                                duplicate it here. */}
-                            {s.enabled ? (
-                              <Pill tone="success" dot>已启用</Pill>
-                            ) : (
-                              <Pill tone="neutral" dot>已停用</Pill>
-                            )}
+                            {/* Switch flips enabled state directly. The 需审批
+                                badge already lives next to the name on the
+                                title cell, no need to duplicate it here. */}
+                            <div
+                              className="flex items-center gap-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Switch
+                                checked={s.enabled}
+                                onCheckedChange={() => handleToggleEnabled(s)}
+                                aria-label={s.enabled ? '点击停用' : '点击启用'}
+                              />
+                              <span className={cn(
+                                'text-[12px]',
+                                s.enabled ? 'text-foreground' : 'text-muted-foreground',
+                              )}>
+                                {s.enabled ? '已启用' : '已停用'}
+                              </span>
+                            </div>
                           </TableCell>
                           <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
                             {formatRuns(m.runs_7d)}
@@ -611,48 +654,36 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                             {updated}
                           </TableCell>
                           <TableCell className="px-3 py-1.5">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
+                            <div className="flex items-center justify-end gap-1">
+                              {isAdminMode && onAssignClick && (
                                 <button
                                   type="button"
-                                  onClick={(e) => e.stopPropagation()}
+                                  onClick={(e) => { e.stopPropagation(); onAssignClick(s); }}
+                                  title="下发给用户"
                                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
                                 >
-                                  <MoreHorizontal className="h-4 w-4" />
+                                  <Send className="h-3.5 w-3.5" />
                                 </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                                <DropdownMenuItem onClick={() => handleEdit(s)}>
-                                  <Edit2 className="mr-2 h-3.5 w-3.5" />
-                                  编辑
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleToggleEnabled(s)}>
-                                  {s.enabled ? (
-                                    <>
-                                      <Pause className="mr-2 h-3.5 w-3.5" />
-                                      停用
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Play className="mr-2 h-3.5 w-3.5" />
-                                      启用
-                                    </>
-                                  )}
-                                </DropdownMenuItem>
-                                {(isAdminMode || s.source === 'user_created' || !s.source) && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() => handleDelete(s)}
-                                      className="text-destructive focus:text-destructive"
-                                    >
-                                      <Trash2 className="mr-2 h-3.5 w-3.5" />
-                                      删除
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleEdit(s); }}
+                                title="编辑"
+                                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              {(isAdminMode || s.source === 'user_created' || !s.source) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(s); }}
+                                  title="删除"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -661,6 +692,13 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                 </Table>
               </div>
             )}
+            <TablePagination
+              page={safePage}
+              totalPages={totalPages}
+              totalItems={visibleSkills.length}
+              onPageChange={setPage}
+              hint={`共 ${visibleSkills.length} 条 · 每页 ${SKILLS_PAGE_SIZE}`}
+            />
           </div>
         </div>
         <ConfirmDialog />

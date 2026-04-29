@@ -1,4 +1,5 @@
 """LangGraph nodes implementation."""
+import time
 from typing import Literal, Optional
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
@@ -8,6 +9,64 @@ from src.agent.llm import get_llm, create_system_prompt
 from src.agent import tools_cache
 from src.tools.registry import get_all_tools
 from src.utils.logger import agent_logger
+
+
+async def _log_invocations(
+    *,
+    tool_calls: list,
+    user_id: Optional[int],
+    thread_id: Optional[str],
+    elapsed_ms: int,
+    status: str,
+    error: Optional[str],
+) -> None:
+    """Append one row per tool_call to tool_invocations / skill_runs.
+
+    Backs the calls_7d / runs_7d / users_using / p95_ms metrics on
+    the tool / skill list pages. Tool names prefixed with `skill_` are
+    routed to `skill_runs` (the agent dispatches skills as a single
+    tool call, so each row is one full skill execution); plain tool
+    names go to `tool_invocations`.
+
+    All calls in the same dispatch share the same elapsed_ms because
+    LangGraph's ToolNode runs them as a batch — per-tool granularity
+    would require a manual dispatch loop. v1 trade-off; logged-status
+    + count are the bits the dashboards care about.
+    """
+    if not user_id or not thread_id or not tool_calls:
+        return
+    try:
+        from src.db import AsyncSessionLocal
+        from src.models import ToolInvocation, SkillRun
+
+        async with AsyncSessionLocal() as db:
+            for tc in tool_calls:
+                name = tc.get("name", "") or ""
+                if not name:
+                    continue
+                if name.startswith("skill_"):
+                    db.add(SkillRun(
+                        skill_name=name[len("skill_"):],
+                        user_id=user_id,
+                        thread_id=thread_id,
+                        status=status,
+                        total_latency_ms=elapsed_ms,
+                        tools_called=1,
+                        error=(error or None),
+                    ))
+                else:
+                    db.add(ToolInvocation(
+                        tool_name=name,
+                        user_id=user_id,
+                        thread_id=thread_id,
+                        status=status,
+                        latency_ms=elapsed_ms,
+                        error=(error or None),
+                    ))
+            await db.commit()
+    except Exception as log_err:
+        # Logging is best-effort — never let it break a turn.
+        agent_logger.warning(f"[invocations] log failed: {log_err}")
 
 
 def _thread_id(config: Optional[dict]) -> Optional[str]:
@@ -259,12 +318,27 @@ async def execute_tools_with_audit(state: AgentState, config: Optional[RunnableC
 
     tool_node = ToolNode(all_tools)
 
+    _exec_status = "success"
+    _exec_error: Optional[str] = None
+    _t0 = time.monotonic()
     try:
         result = await tool_node.ainvoke(state)
         agent_logger.info("Tools executed successfully")
     except Exception as e:
+        _exec_status = "error"
+        _exec_error = str(e)[:1000]
         agent_logger.error(f"Tool execution failed: {str(e)}", exc_info=True)
         raise
+    finally:
+        _elapsed_ms = int((time.monotonic() - _t0) * 1000)
+        await _log_invocations(
+            tool_calls=last_message.tool_calls,
+            user_id=user_id,
+            thread_id=_thread_id(config),
+            elapsed_ms=_elapsed_ms,
+            status=_exec_status,
+            error=_exec_error,
+        )
 
     for tool_call in last_message.tool_calls:
         u_id = state['user_info'].get('user_id', 'unknown')

@@ -5,11 +5,13 @@ import { ToolsManager } from './components/ToolsManager';
 import { SkillsManager } from './components/SkillsManager';
 import { UserFilesManager } from './components/UserFilesManager';
 import { UserManagement } from './components/UserManagement';
-import { GlobalManagement } from './components/GlobalManagement';
 import { ObservabilityPanel } from './components/ObservabilityPanel';
 import { Layout } from './components/Layout';
 import { ConversationHistoryPage } from './pages/ConversationHistoryPage';
 import { ApiKeysPage } from './pages/ApiKeysPage';
+import { AdminToolsPage } from './pages/AdminToolsPage';
+import { AdminSkillsPage } from './pages/AdminSkillsPage';
+import { AdminModelsPage } from './pages/AdminModelsPage';
 import { Button } from './components/ui/button';
 import { Toaster } from './components/ui/toaster';
 import { chatApi, UserInfo } from './api/client';
@@ -22,8 +24,23 @@ import ApiDocs from './pages/ApiDocs';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
-type View = 'chat' | 'history' | 'user-tools' | 'user-skills' | 'user-files' | 'api-keys' | 'user-management' | 'global-management' | 'observability';
-const ALL_VIEWS: View[] = ['chat', 'history', 'user-tools', 'user-skills', 'user-files', 'api-keys', 'user-management', 'global-management', 'observability'];
+type View =
+  | 'chat'
+  | 'history'
+  | 'user-tools'
+  | 'user-skills'
+  | 'user-files'
+  | 'api-keys'
+  | 'user-management'
+  | 'admin-tools'
+  | 'admin-skills'
+  | 'admin-models'
+  | 'observability';
+const ALL_VIEWS: View[] = [
+  'chat', 'history', 'user-tools', 'user-skills', 'user-files', 'api-keys',
+  'user-management', 'admin-tools', 'admin-skills', 'admin-models',
+  'observability',
+];
 
 function MainApp() {
   // View lives in the URL (?view=...) so the browser back/forward
@@ -40,6 +57,12 @@ function MainApp() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
+  // Bumping this number tells the sidebar to re-fetch 最近对话 — used
+  // by ChatInterface after a send finishes (or after a thread title
+  // updates) so the sidebar reflects the new conversation without a
+  // hard refresh.
+  const [recentsRefreshKey, setRecentsRefreshKey] = useState(0);
+  const bumpRecents = () => setRecentsRefreshKey((k) => k + 1);
 
   const setView = (next: View, opts?: { thread?: string | null }) => {
     setSearchParams((prev) => {
@@ -106,9 +129,15 @@ function MainApp() {
         currentView={view}
         onNavigate={handleNavigate}
         onSelectThread={(threadId) => setView('chat', { thread: threadId })}
+        recentsRefreshKey={recentsRefreshKey}
       >
         {view === 'chat' && (
-          <ChatInterface userInfo={userInfo} initialThreadId={pendingThreadId || undefined} />
+          <ChatInterface
+            userInfo={userInfo}
+            initialThreadId={pendingThreadId || undefined}
+            onThreadReset={() => setView('chat', { thread: null })}
+            onConversationUpdate={bumpRecents}
+          />
         )}
         {view === 'history' && (
           <ConversationHistoryPage
@@ -123,7 +152,9 @@ function MainApp() {
           <ApiKeysPage onNavigateHome={() => setView('chat', { thread: null })} />
         )}
         {view === 'user-management' && <UserManagement />}
-        {view === 'global-management' && <GlobalManagement />}
+        {view === 'admin-tools' && <AdminToolsPage />}
+        {view === 'admin-skills' && <AdminSkillsPage />}
+        {view === 'admin-models' && <AdminModelsPage />}
         {view === 'observability' && <ObservabilityPanel />}
       </Layout>
     </div>

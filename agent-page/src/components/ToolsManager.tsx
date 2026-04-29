@@ -3,10 +3,10 @@ import { userApi, UserTool, ToolParameter, ToolOutputField, ToolsApi, McpExecuti
 import {
   Plus,
   Wrench,
-  Pause,
   Play,
   Edit2,
   Trash2,
+  Send,
   Bot,
   Sparkles,
   AlertCircle,
@@ -19,7 +19,6 @@ import {
   ChevronDown,
   ChevronRight,
   Server,
-  MoreHorizontal,
   Loader2,
 } from 'lucide-react';
 import { Button } from './ui/button';
@@ -39,14 +38,14 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from './ui/table';
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
-} from './ui/dropdown-menu';
+import { Switch } from './ui/switch';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
-import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field, AutoGrowTextarea } from './design';
-import { metricsFor, formatCalls } from '../mock/tool_metrics';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field, AutoGrowTextarea, TablePagination } from './design';
+// Real metrics now come from `/user/tools/metrics`. Formatters live
+// in lib/formatters; `metricsFor` (the old deterministic mock) is gone.
+import { formatCalls, formatLatencyMs } from '../lib/formatters';
+import type { ToolMetricsMap } from '../api/user';
 import { cn } from '../lib/utils';
 
 type ViewMode = 'list' | 'create' | 'edit';
@@ -54,9 +53,12 @@ type ViewMode = 'list' | 'create' | 'edit';
 interface ToolsManagerProps {
   api?: ToolsApi;
   onBack?: () => void;
+  /** Optional row-level assign action — when provided AND we're in
+   *  admin mode, the table renders a Send icon button next to Edit. */
+  onAssignClick?: (tool: UserTool) => void;
 }
 
-export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
+export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack, onAssignClick }) => {
   const toolsApi: ToolsApi = api || userApi;
   const isAdminMode = !!api;
   const { toast } = useToast();
@@ -70,6 +72,11 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
   const [typeFilter, setTypeFilter] = useState<'all' | 'http' | 'mcp'>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'user_created' | 'admin_assigned'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled' | 'approval'>('all');
+  // Pagination is purely client-side — `tools` is loaded in full by
+  // listTools() and downstream consumers (skill dep picker etc.) keep
+  // reading the unsliced array. Only the table view is paginated.
+  const TOOLS_PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedTool, setSelectedTool] = useState<UserTool | null>(null);
   const [isTesting, setIsTesting] = useState(false);
@@ -199,6 +206,10 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
     enabled: true,
   });
 
+  // Keyed by `tool.name`; populated alongside the tool list so each
+  // row can look up its 7-day call count + p95 in O(1).
+  const [toolMetrics, setToolMetrics] = useState<ToolMetricsMap>({});
+
   useEffect(() => {
     loadTools();
   }, []);
@@ -206,8 +217,14 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
   const loadTools = async () => {
     setLoading(true);
     try {
-      const data = await toolsApi.listTools();
+      const [data, metrics] = await Promise.all([
+        toolsApi.listTools(),
+        // Admin tool API doesn't expose metrics; only the per-user
+        // endpoint does. Skip silently in admin mode.
+        isAdminMode ? Promise.resolve({} as ToolMetricsMap) : userApi.listToolMetrics().catch(() => ({} as ToolMetricsMap)),
+      ]);
       setTools(data);
+      setToolMetrics(metrics);
     } catch (error) {
       toast({ variant: "destructive", title: "加载失败", description: "无法加载工具列表" });
     } finally {
@@ -721,14 +738,21 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
       return true;
     });
 
+    const totalPages = Math.max(1, Math.ceil(visibleTools.length / TOOLS_PAGE_SIZE));
+    const safePage = Math.min(page, totalPages);
+    const pagedTools = visibleTools.slice(
+      (safePage - 1) * TOOLS_PAGE_SIZE,
+      safePage * TOOLS_PAGE_SIZE,
+    );
+
     const adminCount = tools.filter((t) => t.source === 'admin_assigned').length;
     const userCount = tools.filter((t) => t.source === 'user_created' || !t.source).length;
 
     return (
       <div className="flex h-full flex-col bg-background">
         <PageHeader
-          breadcrumb={['工作区', '工具']}
-          subtitle={`${adminCount} 全局 · ${userCount} 私有`}
+          breadcrumb={isAdminMode ? ['管理', '全局工具'] : ['工作区', '工具']}
+          subtitle={isAdminMode ? `共 ${tools.length} 个全局工具` : `${adminCount} 全局 · ${userCount} 私有`}
           actions={
             onBack ? (
               <Button variant="ghost" size="sm" onClick={onBack} className="h-7 px-2 text-[12px]">
@@ -741,8 +765,10 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
         <div className="flex-1 overflow-y-auto">
           <div className="w-full px-7 pt-6 pb-12">
             <PageTitle
-              title="工具"
-              description="工具是 Agent 可以调用的具体能力。HTTP 接口、SQL 查询、JS 脚本均可注册为工具，并支持参数校验、审批策略与权限控制。"
+              title={isAdminMode ? '全局工具' : '工具'}
+              description={isAdminMode
+                ? '管理员维护的工具库。在这里编辑或下发给用户；普通用户只能看到自己拥有的工具。'
+                : '工具是 Agent 可以调用的具体能力。HTTP 接口、SQL 查询、JS 脚本均可注册为工具，并支持参数校验、审批策略与权限控制。'}
               actions={
                 <>
                   <Button variant="outline" size="sm" onClick={openMcpDrawer} className="gap-1.5">
@@ -762,12 +788,12 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
                   placeholder="搜索工具名、描述…"
                   className="h-8 pl-8 text-[12.5px]"
                 />
               </div>
-              <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
+              <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v as typeof typeFilter); setPage(1); }}>
                 <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
                   <SelectValue />
                 </SelectTrigger>
@@ -777,7 +803,7 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                   <SelectItem value="mcp">MCP</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as typeof sourceFilter)}>
+              <Select value={sourceFilter} onValueChange={(v) => { setSourceFilter(v as typeof sourceFilter); setPage(1); }}>
                 <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
                   <SelectValue />
                 </SelectTrigger>
@@ -787,7 +813,7 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                   <SelectItem value="admin_assigned">全局</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+              <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as typeof statusFilter); setPage(1); }}>
                 <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
                   <SelectValue />
                 </SelectTrigger>
@@ -855,10 +881,17 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {visibleTools.map((t) => {
+                    {pagedTools.map((t) => {
                       const isMcp = t.execution?.type === 'mcp';
                       const method = (t.execution?.config?.method || 'POST').toUpperCase();
-                      const m = metricsFor(t.name, !!t.enabled);
+                      // Real per-tool metrics from `/user/tools/metrics`.
+                      // Disabled tools sit at zero (no calls), and rows
+                      // that haven't been called recently render as 0 / ——.
+                      const raw = toolMetrics[t.name];
+                      const m = {
+                        calls_7d: t.enabled && raw ? raw.calls_7d : 0,
+                        p95: formatLatencyMs(t.enabled && raw ? raw.p95_ms : 0),
+                      };
                       const updated = t.created_at
                         ? new Date(t.created_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
                         : '——';
@@ -893,15 +926,25 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                             <Pill tone="outline">{sourceLabel}</Pill>
                           </TableCell>
                           <TableCell className="px-3 py-1.5">
-                            {/* Status column shows just 启用 / 停用 — the
-                                需审批 badge already lives next to the
-                                name on the title cell, no need to
-                                duplicate it here. */}
-                            {t.enabled ? (
-                              <Pill tone="success" dot>已启用</Pill>
-                            ) : (
-                              <Pill tone="neutral" dot>已停用</Pill>
-                            )}
+                            {/* Switch flips enabled state directly. The 需审批
+                                badge already lives next to the name on the
+                                title cell, no need to duplicate it here. */}
+                            <div
+                              className="flex items-center gap-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Switch
+                                checked={t.enabled}
+                                onCheckedChange={() => handleToggleEnabled(t)}
+                                aria-label={t.enabled ? '点击停用' : '点击启用'}
+                              />
+                              <span className={cn(
+                                'text-[12px]',
+                                t.enabled ? 'text-foreground' : 'text-muted-foreground',
+                              )}>
+                                {t.enabled ? '已启用' : '已停用'}
+                              </span>
+                            </div>
                           </TableCell>
                           <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
                             {formatCalls(m.calls_7d)}
@@ -913,48 +956,36 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                             {updated}
                           </TableCell>
                           <TableCell className="px-3 py-1.5">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
+                            <div className="flex items-center justify-end gap-1">
+                              {isAdminMode && onAssignClick && (
                                 <button
                                   type="button"
-                                  onClick={(e) => e.stopPropagation()}
+                                  onClick={(e) => { e.stopPropagation(); onAssignClick(t); }}
+                                  title="下发给用户"
                                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
                                 >
-                                  <MoreHorizontal className="h-4 w-4" />
+                                  <Send className="h-3.5 w-3.5" />
                                 </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                                <DropdownMenuItem onClick={() => handleEdit(t)}>
-                                  <Edit2 className="mr-2 h-3.5 w-3.5" />
-                                  编辑
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleToggleEnabled(t)}>
-                                  {t.enabled ? (
-                                    <>
-                                      <Pause className="mr-2 h-3.5 w-3.5" />
-                                      停用
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Play className="mr-2 h-3.5 w-3.5" />
-                                      启用
-                                    </>
-                                  )}
-                                </DropdownMenuItem>
-                                {(isAdminMode || t.source === 'user_created' || !t.source) && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() => handleDelete(t)}
-                                      className="text-destructive focus:text-destructive"
-                                    >
-                                      <Trash2 className="mr-2 h-3.5 w-3.5" />
-                                      删除
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleEdit(t); }}
+                                title="编辑"
+                                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              {(isAdminMode || t.source === 'user_created' || !t.source) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(t); }}
+                                  title="删除"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -963,6 +994,13 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                 </Table>
               </div>
             )}
+            <TablePagination
+              page={safePage}
+              totalPages={totalPages}
+              totalItems={visibleTools.length}
+              onPageChange={setPage}
+              hint={`共 ${visibleTools.length} 条 · 每页 ${TOOLS_PAGE_SIZE}`}
+            />
           </div>
         </div>
 

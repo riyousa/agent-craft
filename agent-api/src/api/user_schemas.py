@@ -36,7 +36,9 @@ class WorkspaceInfoResponse(BaseModel):
     user_id: int
     workspace_path: str
     max_storage_mb: int
-    used_storage_mb: int
+    # Float so sub-MB usage is visible (a 200KB file should not round
+    # to 0). Computed live from `SUM(user_files.size_bytes)`.
+    used_storage_mb: float
     file_count: int
 
 
@@ -51,6 +53,15 @@ class ConversationListItem(BaseModel):
     last_message: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    # Per-conversation aggregates (☆ 收藏 / TOKENS / 工具调用次数).
+    is_starred: bool = False
+    tokens_total: int = 0
+    tools_called: int = 0
+
+
+class StarConversationRequest(BaseModel):
+    """请求 body for `PUT /user/conversations/{tid}/star`."""
+    value: bool
 
 
 class ConversationMessagesResponse(BaseModel):

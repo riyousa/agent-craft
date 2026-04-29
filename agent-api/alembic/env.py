@@ -22,7 +22,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from src.config import settings  # noqa: E402
 from src.models.base import Base  # noqa: E402
 # Import models so their tables register on Base.metadata
-from src.models import user, tool, skill, workspace, session as session_model, api_key, audit_log  # noqa: E402,F401
+from src.models import user, tool, skill, workspace, session as session_model, api_key, audit_log, invocations  # noqa: E402,F401
 
 config = context.config
 

@@ -7,6 +7,7 @@ from .tool import AdminTool, UserTool
 from .workspace import UserWorkspace, UserFile, ConversationHistory
 from .api_key import ApiKey
 from .llm_model import LLMModel
+from .invocations import ToolInvocation, SkillRun
 
 __all__ = [
     "User",
@@ -21,4 +22,6 @@ __all__ = [
     "ConversationHistory",
     "ApiKey",
     "LLMModel",
+    "ToolInvocation",
+    "SkillRun",
 ]

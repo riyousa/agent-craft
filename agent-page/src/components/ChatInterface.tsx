@@ -67,6 +67,14 @@ interface ChatInterfaceProps {
   /** Pre-load this thread on mount — used when navigating from the
       history page. When unset, a fresh thread id is generated. */
   initialThreadId?: string;
+  /** Tells the parent to clear `?thread=` so a later click on the
+   *  same recent-thread row re-fires `initialThreadId` instead of
+   *  silently no-op'ing on referential equality. */
+  onThreadReset?: () => void;
+  /** Called after a turn completes (or any time the conversation list
+   *  may have changed) so the sidebar 最近对话 re-fetches without a
+   *  hard refresh. */
+  onConversationUpdate?: () => void;
 }
 
 interface Step {
@@ -90,12 +98,16 @@ interface Message {
   files?: AttachedFile[];
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId, onThreadReset, onConversationUpdate }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  // Always start with a fresh id; if `initialThreadId` was passed, the
+  // effect below swaps to that thread + loads its history. Initializing
+  // directly from `initialThreadId` would short-circuit the equality
+  // guard and skip the very first load.
   const [threadId, setThreadId] = useState(
-    initialThreadId || `user_${userInfo.user_id}_${Date.now()}`,
+    () => `user_${userInfo.user_id}_${Date.now()}`,
   );
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [approvalDetails, setApprovalDetails] = useState<any[]>([]);
@@ -128,6 +140,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
   // Combined attach button now opens a popover with two choices instead of
   // owning two separate icons in the composer.
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  // Click an attached chip to open a centered preview — images render
+  // inline, non-images get a "在新标签页打开" affordance.
+  const [previewFile, setPreviewFile] = useState<AttachedFile | null>(null);
   const [showVersions, setShowVersions] = useState(false);
   const [checkpoints, setCheckpoints] = useState<any[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
@@ -342,16 +357,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
     ta.style.height = `${next}px`;
   }, [input]);
 
-  // When a thread id is handed in (e.g. from the history page), load
-  // that thread's messages once on mount so the user lands inside the
-  // conversation rather than a blank chat with the wrong thread.
+  // Load the handed-in thread whenever the prop changes — fires both
+  // on first mount AND when the parent flips `?thread=...` (e.g. a
+  // sidebar 最近对话 click) without remounting ChatInterface. Without
+  // this dependency the click only worked after a hard refresh.
   useEffect(() => {
     if (!initialThreadId) return;
+    if (initialThreadId === threadId) return;
     handleSelectConversation(initialThreadId);
-    // Intentionally one-shot — switching threads later happens via the
-    // composer drawer, not by remounting with a new prop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialThreadId]);
 
   const handleSelectConversation = async (newThreadId: string) => {
     setThreadId(newThreadId);
@@ -384,6 +399,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    // Drop `?thread=` from the URL so a later sidebar click on the
+    // same recent thread actually changes `initialThreadId` and the
+    // effect rehydrates the conversation.
+    onThreadReset?.();
     setThreadId(newThreadId);
     setMessages([]);
     setCurrentSteps([]);
@@ -637,6 +656,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
           setForkCheckpointId('');  // Clear fork point after first use
           releaseLoading();
           setHistoryRefreshTrigger(prev => prev + 1);
+          // Tell App.tsx to bump the sidebar's 最近对话 refresh key —
+          // this turn likely created or updated a conversation.
+          onConversationUpdate?.();
         },
         (error: string) => {
           abortControllerRef.current = null;
@@ -1017,16 +1039,29 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
           <div className="flex-1" />
 
           {hasMessages && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleNewConversation}
-              className={chipGhost}
-              title="开始新对话"
-            >
-              <SquarePen className="w-3.5 h-3.5" />
-              <span>新对话</span>
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={openVersions}
+                disabled={loading}
+                className={chipGhost}
+                title="版本回滚"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">版本回滚</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleNewConversation}
+                className={chipGhost}
+                title="开始新对话"
+              >
+                <SquarePen className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">新对话</span>
+              </Button>
+            </>
           )}
         </div>
 
@@ -1040,21 +1075,42 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
         >
           {attachedFiles.length > 0 && (
             <div className="flex gap-2 pb-2 px-1 flex-wrap">
-              {attachedFiles.map((f, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-1.5 bg-background/70 border border-border/40 rounded-md px-2.5 py-1 text-xs"
-                >
-                  <FileIcon className="w-3 h-3 text-muted-foreground" />
-                  <span className="truncate max-w-[150px]">{f.name}</span>
-                  <button
-                    onClick={() => removeFile(i)}
-                    className="hover:text-chart-5 transition-colors"
+              {attachedFiles.map((f, i) => {
+                const ext = f.name.split('.').pop()?.toLowerCase() || '';
+                const isImage = ['jpg','jpeg','png','gif','webp','svg','bmp'].includes(ext);
+                return (
+                  <div
+                    key={i}
+                    className="group flex items-center gap-1.5 bg-background/70 border border-border/40 rounded-md pl-1 pr-2 py-1 text-xs animate-fade-in"
                   >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFile(f)}
+                      title="预览"
+                      className="flex items-center gap-1.5 transition-colors hover:text-foreground"
+                    >
+                      {isImage ? (
+                        <img
+                          src={f.url}
+                          alt={f.name}
+                          className="h-6 w-6 rounded-sm object-cover ring-1 ring-border/40"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <FileIcon className="w-3.5 h-3.5 text-muted-foreground ml-1" />
+                      )}
+                      <span className="truncate max-w-[150px]">{f.name}</span>
+                    </button>
+                    <button
+                      onClick={() => removeFile(i)}
+                      title="移除"
+                      className="hover:text-chart-5 transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -1154,9 +1210,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
           </div>
         </div>
 
-        {/* ─── Bottom thread bar: always visible so users can browse past
-             conversations even from the welcome screen. Version rollback only
-             makes sense after a chat exists, so it stays gated. ─── */}
+        {/* History lives in the sidebar (工作区 / 对话历史) on every
+            screen, and 版本回滚 has moved into the top strip on
+            messageful chats — no need for a duplicated bottom bar. */}
+        {!hasMessages && (
         <div className="flex items-center gap-1 px-1">
           <Button
             variant="ghost"
@@ -1168,20 +1225,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
             <MessageSquare className="w-3.5 h-3.5" />
             <span>历史会话</span>
           </Button>
-          {hasMessages && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={openVersions}
-              disabled={loading}
-              className={chipGhost}
-              title="版本回滚"
-            >
-              <History className="w-3.5 h-3.5" />
-              <span>版本回滚</span>
-            </Button>
-          )}
         </div>
+        )}
       </div>
     );
   };
@@ -1191,18 +1236,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
 
       {/* Welcome (empty state) — composer is centered inline */}
       {messages.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center px-4 -mt-8">
+        <div className="flex-1 flex flex-col items-center justify-center px-4 -mt-6">
           <div className="w-full max-w-2xl">
-            <div className="text-center mb-6 space-y-1.5">
-              <h1
-                className="text-2xl md:text-3xl font-semibold tracking-tight animate-rise-in"
-                style={{ animationDelay: '40ms' }}
+            <div className="text-center mb-7 space-y-2">
+              <div
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[11px] text-muted-foreground animate-rise-in"
+                style={{ animationDelay: '0ms' }}
               >
-                欢迎回来
+                <Sparkles className="h-3 w-3" />
+                <span>Agent Craft</span>
+              </div>
+              <h1
+                className="text-3xl md:text-4xl font-semibold tracking-tight leading-tight animate-rise-in"
+                style={{ animationDelay: '80ms' }}
+              >
+                你好，{userInfo?.name || '同学'}
               </h1>
               <p
-                className="text-sm text-muted-foreground animate-rise-in"
-                style={{ animationDelay: '160ms' }}
+                className="text-[13px] text-muted-foreground animate-rise-in"
+                style={{ animationDelay: '180ms' }}
               >
                 内部 API、流程、数据，一句话搞定
               </p>
@@ -1210,13 +1262,39 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
             <div className="animate-rise-in" style={{ animationDelay: '280ms' }}>
               {renderComposer()}
             </div>
+            {/* Quick-start suggestion chips — click fills the textarea
+                so user can edit before sending. Kept static for now;
+                later phases can rotate these from a backend hook. */}
+            {/* <div
+              className="mt-5 flex flex-wrap justify-center gap-2 animate-rise-in"
+              style={{ animationDelay: '380ms' }}
+            >
+              {[
+                '查询本月活跃用户的关键指标',
+                '帮我生成一份项目周报',
+                '排查最近一次工具调用失败的原因',
+                '把上周对话汇总成 markdown 列表',
+              ].map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => {
+                    setInput(q);
+                    textareaRef.current?.focus();
+                  }}
+                  className="group inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground"
+                >
+                  <span>{q}</span>
+                </button>
+              ))}
+            </div> */}
           </div>
         </div>
       ) : (
         <>
       {/* Messages Container */}
       <ScrollArea className="flex-1 px-4 py-4">
-        <div className="max-w-3xl mx-auto space-y-5 pt-6 pb-2">
+        <div className="max-w-3xl mx-auto space-y-6 pt-6 pb-2">
           {/* Messages */}
           {messages.map((msg, index) => (
             <div
@@ -1241,19 +1319,42 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
                     {msg.files && msg.files.length > 0 && (
                       <div className={cn("flex flex-wrap gap-2", msg.content && "mt-2")}>
                         {msg.files.map((f, fi) => {
-                          const ext = f.name.split('.').pop()?.toLowerCase() || '';
-                          const isImage = ['jpg','jpeg','png','gif','webp','svg','bmp'].includes(ext);
-                          return (
+                          // Detection: prefer URL because reloaded
+                          // history may have name="123" (no extension)
+                          // when only the file id was recoverable.
+                          const nameExt = f.name.split('.').pop()?.toLowerCase() || '';
+                          const urlBase = (f.url || '').split('?')[0];
+                          const urlExt = urlBase.split('.').pop()?.toLowerCase() || '';
+                          const imageExts = ['jpg','jpeg','png','gif','webp','svg','bmp'];
+                          const isImage =
+                            (f.url || '').startsWith('data:image/') ||
+                            imageExts.includes(nameExt) ||
+                            imageExts.includes(urlExt);
+                          const src = resolveApiUrl(f.url);
+                          return isImage ? (
+                            <button
+                              key={fi}
+                              type="button"
+                              onClick={() => setPreviewFile(f)}
+                              title={f.name}
+                              className="block overflow-hidden rounded-md ring-1 ring-border/40 hover:ring-border transition-shadow hover:shadow-sm"
+                            >
+                              <img
+                                src={src}
+                                alt={f.name}
+                                loading="lazy"
+                                className="h-24 w-24 object-cover animate-fade-in"
+                              />
+                            </button>
+                          ) : (
                             <a
                               key={fi}
-                              href={f.url}
+                              href={src}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-border/50 bg-background/40 hover:bg-background/60 transition-colors"
                             >
-                              {isImage
-                                ? <ImageIcon className="w-3.5 h-3.5 text-chart-4" />
-                                : <FileIcon className="w-3.5 h-3.5 text-muted-foreground" />}
+                              <FileIcon className="w-3.5 h-3.5 text-muted-foreground" />
                               <span className="truncate max-w-[150px]">{f.name}</span>
                             </a>
                           );
@@ -1392,6 +1493,47 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ userInfo, initialThreadId
           </div>
         </div>
       )}
+
+      {/* Attachment preview — image inline, non-image gets a download
+          link. Closing on any backdrop / Escape keeps the composer
+          intact (selection is preserved). */}
+      <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              {previewFile && /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(previewFile.name) ? (
+                <ImageIcon className="w-4 h-4 text-chart-4" />
+              ) : (
+                <FileIcon className="w-4 h-4 text-muted-foreground" />
+              )}
+              <span className="truncate">{previewFile?.name}</span>
+            </DialogTitle>
+          </DialogHeader>
+          {previewFile && /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(previewFile.name) ? (
+            <div className="flex items-center justify-center bg-muted/40 rounded-md p-2 max-h-[70vh] overflow-auto">
+              <img
+                src={previewFile.url}
+                alt={previewFile.name}
+                className="max-h-[66vh] w-auto rounded-sm object-contain animate-fade-in"
+              />
+            </div>
+          ) : previewFile ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-3 text-sm text-muted-foreground">
+              <FileIcon className="h-10 w-10 text-muted-foreground/60" />
+              <p>这种类型暂不支持内嵌预览，可在新标签页中打开。</p>
+              <a
+                href={previewFile.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs hover:bg-accent"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                在新标签页打开
+              </a>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       {/* Version History Drawer */}
       <Drawer open={showVersions} onOpenChange={setShowVersions}>

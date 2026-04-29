@@ -173,8 +173,17 @@ async def delete_file(
     db: AsyncSession = Depends(get_db),
 ):
     """删除文件."""
-
-    success = await workspace_service.delete_file(user_id, file_id, db)
+    try:
+        success = await workspace_service.delete_file(user_id, file_id, db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        from src.utils.logger import api_logger
+        api_logger.error(
+            f"[delete_file] file_id={file_id} user_id={user_id} failed: {e!r}",
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=f"删除失败: {e}")
 
     if not success:
         raise HTTPException(status_code=404, detail="File not found")
@@ -191,20 +200,29 @@ async def get_workspace_info(
 
     workspace = await workspace_service.get_or_create_workspace(user_id, db)
 
-    # 统计文件数量
+    # `user_files.size_bytes` is the source of truth — `workspace.used_storage_mb`
+    # was an int counter that lost every sub-MB write to truncation, so a
+    # workspace with 50 small files used to report 0 MB. Aggregating live
+    # is one cheap query and removes the drift class of bugs entirely.
     result = await db.execute(
-        select(func.count(UserFile.id)).where(
+        select(
+            func.count(UserFile.id),
+            func.coalesce(func.sum(UserFile.size_bytes), 0),
+        ).where(
             UserFile.user_id == user_id, UserFile.is_deleted == False
         )
     )
-    file_count = result.scalar() or 0
+    row = result.one()
+    file_count = int(row[0] or 0)
+    used_bytes = int(row[1] or 0)
+    used_storage_mb = round(used_bytes / (1024 * 1024), 2)
 
     return WorkspaceInfoResponse(
         id=workspace.id,
         user_id=workspace.user_id,
         workspace_path=workspace.workspace_path,
         max_storage_mb=workspace.max_storage_mb,
-        used_storage_mb=int(workspace.used_storage_mb),
+        used_storage_mb=used_storage_mb,
         file_count=file_count,
     )
 

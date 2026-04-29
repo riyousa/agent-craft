@@ -51,6 +51,22 @@ import { userApi } from '../api/user';
 const tools = await userApi.listTools();
 ```
 
+### 指标 / 聚合字段
+
+后端给的列表带聚合字段（如 `is_starred / tokens_total / tools_called`），别再本地伪造。`agent-page/src/mock/` 已经全部下线——历史上那个目录顶住过几个未实现字段，现在所有列表都接到了真接口（`/user/conversations` / `/user/tools/metrics` / `/user/skills/metrics` 等）。
+
+格式化辅助统一放在 `lib/formatters.ts`：
+
+```tsx
+import { formatCalls, formatRuns, formatTokens, formatLatencyMs } from '../lib/formatters';
+
+formatCalls(1234);     // "1.2k"
+formatTokens(1500000); // "1.5M"
+formatLatencyMs(420);  // "420 ms"
+formatLatencyMs(1500); // "1.5 s"
+formatLatencyMs(0);    // "——"
+```
+
 ### 模型能力门控（capability gating）
 
 对话相关 UI 不应假设所有模型都能用同一组功能。`UserVisibleModel` 上声明了 `supports_reasoning`、`supports_file_upload` 等布尔位（参见 `api/user.ts`），后端按 provider 默认值 + 模型 `extra_config` 覆盖好后下发。

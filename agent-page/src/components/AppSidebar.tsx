@@ -12,10 +12,10 @@
  * Reference: design bundle (PSKRgbxCcC9dV9GvkEezKw),
  * agent-craft/project/app.jsx:145-372 Sidebar.
  *
- * Counts shown next to nav items (24 / 8 / 3 …) come from `mock/sidebarCounts`
- * for now — the backend doesn't expose aggregate counts per resource yet.
- * Replacing them with live values is one API call away (see design_update.md
- * Phase 4).
+ * Nav items currently render without count badges. If we later add per-
+ * resource counts (24 / 8 / 3 …) the field is `badge?: string` on each
+ * workspaceItem — populate from a real `userApi.counts()` call rather
+ * than reintroducing a mock layer.
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -34,6 +34,7 @@ import {
   Settings,
   Eye,
   ShieldCheck,
+  Cpu,
   Loader2,
 } from 'lucide-react';
 import {
@@ -71,6 +72,10 @@ interface AppSidebarProps {
    *  to the chat page. Optional so callers without history support pass
    *  `undefined` and the rows just route to the history page. */
   onSelectThread?: (threadId: string) => void;
+  /** Re-fetch 最近对话 whenever this number changes — bumped by the
+   *  chat page after a turn finishes so the latest thread surfaces
+   *  without a hard refresh. */
+  recentsRefreshKey?: number;
 }
 
 function parseServerTime(s: string | null | undefined): number {
@@ -92,7 +97,7 @@ function relTime(s: string | null | undefined): string {
   return new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
 }
 
-export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSidebarProps) {
+export function AppSidebar({ currentView, onNavigate, onSelectThread, recentsRefreshKey }: AppSidebarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -123,7 +128,7 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
 
   useEffect(() => {
     loadRecents(1, false);
-  }, [loadRecents]);
+  }, [loadRecents, recentsRefreshKey]);
 
   const handleLogout = () => {
     logout();
@@ -153,9 +158,9 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
   ];
 
   // Admin items — visible by role; L2 sees user management only.
-  // 模型管理 is intentionally absent: it currently lives nested under
-  // GlobalManagement and doesn't have its own route. Phase 2.3 promotes
-  // it to a top-level view; we'll restore the entry then.
+  // Phase 2.2 / 2.3 split the legacy GlobalManagement page into three
+  // dedicated entries (全局工具 / 全局技能 / 模型管理); the assignment
+  // workflow stays under "下发管理".
   const adminItems: Array<{
     id: string;
     icon: React.ElementType;
@@ -164,7 +169,9 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
     superOnly?: boolean;
   }> = [
     { id: 'user-management', icon: Users, label: '用户管理', view: 'user-management' },
-    { id: 'global-management', icon: ShieldCheck, label: '全局工具技能', view: 'global-management', superOnly: true },
+    { id: 'admin-tools', icon: Wrench, label: '全局工具', view: 'admin-tools', superOnly: true },
+    { id: 'admin-skills', icon: Lightbulb, label: '全局技能', view: 'admin-skills', superOnly: true },
+    { id: 'admin-models', icon: Cpu, label: '模型管理', view: 'admin-models', superOnly: true },
     { id: 'observability', icon: Eye, label: '可观测', view: 'observability', superOnly: true },
   ].filter((it) => (it.superOnly ? isSuperAdmin : isAdmin));
 
@@ -179,9 +186,6 @@ export function AppSidebar({ currentView, onNavigate, onSelectThread }: AppSideb
           <div className="flex min-w-0 flex-1 flex-col leading-tight">
             <span className="truncate text-[13px] font-semibold tracking-tight text-sidebar-foreground">
               Agent Craft
-            </span>
-            <span className="truncate font-mono text-[10px] text-muted-foreground">
-              v0.4.2
             </span>
           </div>
           <SidebarTrigger className="h-6 w-6 text-muted-foreground" />

@@ -26,11 +26,8 @@ import {
 import { useToast } from '../hooks/use-toast';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  PageHeader, PageTitle, Pill, StatCard, EmptyState, Toolbar,
+  PageHeader, PageTitle, Pill, StatCard, EmptyState, Toolbar, TablePagination,
 } from './design';
-import {
-  usageFor, formatTokens as fmtTokens, formatRelativeFromSeconds,
-} from '../mock/user_usage';
 import { cn } from '../lib/utils';
 
 const ROLE_MAP: Record<number, { label: string; icon: React.ElementType; color: string }> = {
@@ -181,19 +178,11 @@ export const UserManagement: React.FC = () => {
 
   const totalPages = Math.ceil(total / pageSize);
 
-  // Stat cards aggregate from the in-memory user list. Numbers like
-  // active-7d / monthly token spend / pending review come from the
-  // mock layer until the backend exposes them (Phase 4).
+  // Stat cards aggregate from the in-memory user list. Per-user token
+  // usage / spend / last-active metrics were dropped — surfacing them
+  // properly needs a `usage_monthly` table that's out of scope.
   const activeUsers = users.filter((u) => u.is_active).length;
   const disabledUsers = users.filter((u) => !u.is_active).length;
-  const monthlyTokens = users.reduce(
-    (acc, u) => acc + usageFor(u.id, u.is_active).monthly_tokens,
-    0,
-  );
-  const monthlySpend = users.reduce(
-    (acc, u) => acc + usageFor(u.id, u.is_active).monthly_spend_cny,
-    0,
-  );
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -215,18 +204,14 @@ export const UserManagement: React.FC = () => {
             }
           />
 
-          {/* Stat row — 4 metrics per design */}
-          <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-            <StatCard label="活跃用户" value={activeUsers} sub={`共 ${total} 人`} trend="up" />
+          {/* Stat row — backend-backed counts only. Token / spend
+              cards retired with the user_usage mock. */}
+          <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3">
+            <StatCard label="共 N 人" value={total} sub={`${activeUsers} 活跃`} trend="up" />
             <StatCard
-              label="本月 Token"
-              value={fmtTokens(monthlyTokens)}
-              sub={`¥${monthlySpend.toFixed(2)}`}
-            />
-            <StatCard
-              label="待审核"
-              value={0}
-              sub="——"
+              label="活跃"
+              value={activeUsers}
+              sub={`占 ${total ? Math.round((activeUsers / total) * 100) : 0}%`}
             />
             <StatCard
               label="已停用"
@@ -281,15 +266,12 @@ export const UserManagement: React.FC = () => {
             />
           ) : (
             <div className="rounded-lg border border-border bg-card overflow-hidden">
-              <Table className="table-fixed min-w-[820px]">
+              <Table className="table-fixed min-w-[640px]">
                 <colgroup>
-                  <col className="w-[24%]" />
-                  <col className="w-[12%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[12%]" />
-                  <col className="w-[10%]" />
+                  <col className="w-[40%]" />
+                  <col className="w-[18%]" />
+                  <col className="w-[20%]" />
                   <col className="w-[14%]" />
-                  <col className="w-[10%]" />
                   <col className="w-[8%]" />
                 </colgroup>
                 <TableHeader>
@@ -297,16 +279,12 @@ export const UserManagement: React.FC = () => {
                     <TableHead className="h-9 px-3">用户</TableHead>
                     <TableHead className="h-9 px-3">角色</TableHead>
                     <TableHead className="h-9 px-3">团队</TableHead>
-                    <TableHead className="h-9 px-3 text-right">本月 TOKEN</TableHead>
-                    <TableHead className="h-9 px-3 text-right">消耗</TableHead>
-                    <TableHead className="h-9 px-3">最近活跃</TableHead>
                     <TableHead className="h-9 px-3">状态</TableHead>
                     <TableHead className="h-9 px-3"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {sortedUsers.map((u) => {
-                    const usage = usageFor(u.id, u.is_active);
                     return (
                       <TableRow key={u.id} className="cursor-default">
                         <TableCell className="min-w-0 px-3 py-1.5">
@@ -361,17 +339,6 @@ export const UserManagement: React.FC = () => {
                             <span className="text-[12px] text-muted-foreground">——</span>
                           )}
                         </TableCell>
-                        <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-foreground">
-                          {fmtTokens(usage.monthly_tokens)}
-                        </TableCell>
-                        <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
-                          ¥{usage.monthly_spend_cny.toFixed(2)}
-                        </TableCell>
-                        <TableCell className="px-3 py-1.5 text-[12px] text-muted-foreground whitespace-nowrap">
-                          {u.is_active
-                            ? formatRelativeFromSeconds(usage.last_active_seconds)
-                            : '——'}
-                        </TableCell>
                         <TableCell className="px-3 py-1.5">
                           {u.is_active ? (
                             <Pill tone="success" dot>活跃</Pill>
@@ -421,20 +388,14 @@ export const UserManagement: React.FC = () => {
             </div>
           )}
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="mt-4 flex items-center justify-center gap-2">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                上一页
-              </Button>
-              <span className="font-mono text-[11.5px] text-muted-foreground">
-                {page} / {totalPages}
-              </span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                下一页
-              </Button>
-            </div>
-          )}
+          <TablePagination
+            page={page}
+            totalPages={totalPages}
+            totalItems={total}
+            onPageChange={setPage}
+            hint={`共 ${total} 条 · 每页 ${pageSize}`}
+          />
+          {/* (server-side paginated via adminUserApi.listUsers) */}
         </div>
       </div>
 

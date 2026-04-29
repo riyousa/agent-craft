@@ -132,8 +132,10 @@ class WorkspaceService:
         )
         db.add(user_file)
 
-        # 更新工作空间使用量
-        workspace.used_storage_mb += size_bytes / (1024 * 1024)
+        # `used_storage_mb` was a cached counter that quietly truncated
+        # every sub-MB write because the column is INTEGER. It's now
+        # recomputed live from `user_files.size_bytes` in the workspace
+        # info endpoint, so we don't maintain it here anymore.
         await db.commit()
         await db.refresh(user_file)
 
@@ -236,16 +238,10 @@ class WorkspaceService:
                 f"[delete_file] disk unlink failed for file_id={file_id}: {fs_err!r}"
             )
 
-        # 更新工作空间使用量
-        workspace_result = await db.execute(
-            select(UserWorkspace).where(UserWorkspace.id == user_file.workspace_id)
-        )
-        workspace_row = workspace_result.scalar_one_or_none()
-        if workspace_row:
-            new_used = (workspace_row.used_storage_mb or 0) - user_file.size_bytes / (1024 * 1024)
-            # Defend against drift — never let used_storage_mb go negative.
-            workspace_row.used_storage_mb = max(0.0, new_used)
-
+        # No `used_storage_mb` decrement — workspace info now aggregates
+        # live from `user_files.size_bytes WHERE is_deleted = false`,
+        # so flipping the soft-delete flag above is enough to reflect
+        # the freed quota on the next read.
         await db.commit()
         return True
 

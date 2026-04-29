@@ -7,15 +7,13 @@ import {
 } from '../api/user';
 import {
   Plus,
-  Pause,
-  Play,
   Edit2,
   Trash2,
   Sparkles,
   Star,
   Eye,
   EyeOff,
-  Search,
+  Activity,
   CheckCircle2,
   XCircle,
   AlertCircle,
@@ -25,14 +23,17 @@ import {
   ExternalLink,
   Info,
   Copy,
+  Loader2,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
+import { Pill } from './design';
+import { Switch } from './ui/switch';
+import { cn } from '../lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { JsonEditor } from './ui/json-editor';
 import {
@@ -254,112 +255,219 @@ export const ModelsManager: React.FC = () => {
     );
   }
 
+  // Vendor-letter logo color, chosen per provider so the same provider
+  // always renders with the same accent. Falls back to neutral muted
+  // for unknown providers — keeps the layout calm rather than guessing
+  // a random color.
+  const providerTone = (key: string): string => {
+    switch (key) {
+      case 'openai':
+        return 'bg-chart-2/15 text-chart-2';
+      case 'anthropic':
+        return 'bg-chart-4/15 text-chart-4';
+      case 'doubao':
+      case 'zhipu':
+      case 'qwen':
+      case 'glm':
+        return 'bg-chart-1/15 text-chart-1';
+      case 'ollama':
+        return 'bg-muted text-foreground';
+      default:
+        return 'bg-primary/10 text-primary';
+    }
+  };
+
+  // First glyph of the display name — preferred over provider key
+  // because the user-chosen name reads better. CJK / mixed fine.
+  const initial = (m: AdminLLMModel): string => {
+    const src = (m.display_name || m.name || m.provider || '?').trim();
+    return src.slice(0, 1).toUpperCase();
+  };
+
+  const enabledCount = models.filter((m) => m.enabled).length;
+  const visibleCount = models.filter((m) => m.visible_to_users && m.enabled).length;
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          共 {models.length} 个模型 ·{' '}
-          <span className="text-foreground">{models.filter((m) => m.enabled).length} 启用</span> ·{' '}
-          <span className="text-foreground">{models.filter((m) => m.visible_to_users && m.enabled).length} 对用户可见</span>
+    <div className="space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[12.5px] text-muted-foreground">
+          共 <span className="text-foreground font-medium">{models.length}</span> 个模型 ·
+          <span className="ml-1 text-foreground font-medium">{enabledCount}</span> 启用 ·
+          <span className="ml-1 text-foreground font-medium">{visibleCount}</span> 对用户可见
         </p>
-        <Button onClick={openCreate}>
-          <Plus className="w-4 h-4 mr-2" />
+        <Button size="sm" onClick={openCreate} className="gap-1.5">
+          <Plus className="h-3.5 w-3.5" />
           添加模型
         </Button>
       </div>
 
       {models.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center py-16">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <Sparkles className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-xl font-semibold mb-2">暂无模型</h3>
-            <p className="text-muted-foreground mb-4">添加至少一个模型，用户才能使用对话功能</p>
-            <Button onClick={openCreate}>
-              <Plus className="w-4 h-4 mr-2" /> 添加模型
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col items-center rounded-lg border border-dashed border-border bg-card py-16">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+            <Sparkles className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h3 className="mb-2 text-lg font-semibold">暂无模型</h3>
+          <p className="mb-4 text-sm text-muted-foreground">添加至少一个模型，用户才能使用对话功能</p>
+          <Button onClick={openCreate} className="gap-1.5">
+            <Plus className="h-4 w-4" /> 添加模型
+          </Button>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {models.map((m) => {
-            const provLabel = providers.find((p) => p.key === m.provider)?.display_name || m.provider;
+            const provLabel =
+              providers.find((p) => p.key === m.provider)?.display_name || m.provider;
             const result = testResult && testResult.id === m.id ? testResult : null;
+            const isTesting = testingId === m.id;
             return (
-              <Card key={m.id} className={!m.enabled ? 'opacity-60' : ''}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        {m.display_name}
-                        {m.is_default && (
-                          <Badge variant="default" className="gap-1">
-                            <Star className="w-3 h-3" /> 默认
-                          </Badge>
-                        )}
-                      </CardTitle>
-                      <code className="text-xs text-muted-foreground">{m.name}</code>
-                    </div>
-                    <Badge variant="outline">{provLabel}</Badge>
-                  </div>
-                  <CardDescription className="mt-2 space-y-1">
-                    <div className="font-mono text-xs">{m.model}</div>
-                    {m.base_url && <div className="font-mono text-xs truncate text-muted-foreground">{m.base_url}</div>}
-                    {m.api_key_masked && (
-                      <div className="text-xs text-muted-foreground">key: <code>{m.api_key_masked}</code></div>
+              <div
+                key={m.id}
+                className={cn(
+                  'group rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-sm',
+                  !m.enabled && 'opacity-60',
+                )}
+              >
+                <div className="flex items-start gap-4">
+                  {/* Vendor letter logo */}
+                  <div
+                    className={cn(
+                      'flex h-12 w-12 shrink-0 items-center justify-center rounded-md font-mono text-lg font-semibold',
+                      providerTone(m.provider),
                     )}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="pb-3 space-y-2">
-                  <div className="flex flex-wrap gap-2">
-                    {!m.enabled && <Badge variant="outline">已停用</Badge>}
-                    {m.enabled && (
-                      <Badge variant={m.visible_to_users ? 'secondary' : 'outline'}>
-                        {m.visible_to_users ? '对用户可见' : '仅 admin 可用'}
-                      </Badge>
-                    )}
-                    {m.description && <span className="text-xs text-muted-foreground line-clamp-1">{m.description}</span>}
-                  </div>
-                  {result && (
-                    <div className={`text-xs flex items-center gap-2 ${result.ok ? 'text-chart-2' : 'text-chart-5'}`}>
-                      {result.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
-                      <span>{result.message}</span>
-                      {result.reply && <span className="text-muted-foreground truncate">→ {result.reply}</span>}
-                    </div>
-                  )}
-                </CardContent>
-                <Separator />
-                <div className="flex items-center justify-end gap-1 p-3 flex-wrap">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleTest(m)}
-                    disabled={testingId === m.id}
+                    aria-hidden
                   >
-                    <Search className="w-4 h-4 mr-1.5" />
-                    {testingId === m.id ? '测试中...' : '测试'}
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleToggle(m, 'enabled')}>
-                    {m.enabled ? <Pause className="w-4 h-4 mr-1.5" /> : <Play className="w-4 h-4 mr-1.5" />}
-                    {m.enabled ? '停用' : '启用'}
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleToggle(m, 'visible_to_users')} disabled={!m.enabled}>
-                    {m.visible_to_users ? <EyeOff className="w-4 h-4 mr-1.5" /> : <Eye className="w-4 h-4 mr-1.5" />}
-                    {m.visible_to_users ? '对用户隐藏' : '对用户开放'}
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleSetDefault(m)} disabled={m.is_default || !m.enabled}>
-                    <Star className="w-4 h-4 mr-1.5" />
-                    设为默认
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(m)}>
-                    <Edit2 className="w-4 h-4 mr-1.5" /> 编辑
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleDelete(m)} className="text-chart-5 hover:text-chart-5">
-                    <Trash2 className="w-4 h-4 mr-1.5" /> 删除
-                  </Button>
+                    {initial(m)}
+                  </div>
+
+                  {/* Middle: name + meta + pills */}
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <h3 className="truncate text-[14px] font-semibold leading-tight text-foreground">
+                        {m.display_name}
+                      </h3>
+                      {m.is_default && (
+                        <Pill tone="accent">
+                          <Star className="mr-0.5 h-2.5 w-2.5" /> 默认
+                        </Pill>
+                      )}
+                      {!m.enabled ? (
+                        <Pill tone="neutral" dot>已停用</Pill>
+                      ) : m.visible_to_users ? (
+                        <Pill tone="success" dot>对用户可见</Pill>
+                      ) : (
+                        <Pill tone="outline">仅 admin</Pill>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-muted-foreground">
+                      <span className="font-mono text-foreground">{m.model}</span>
+                      <span className="opacity-50">·</span>
+                      <span>{provLabel}</span>
+                      <span className="opacity-50">·</span>
+                      <span className="font-mono">{m.name}</span>
+                    </div>
+                    {m.base_url && (
+                      <div className="truncate font-mono text-[11px] text-muted-foreground">
+                        {m.base_url}
+                      </div>
+                    )}
+                    {m.api_key_masked && (
+                      <div className="text-[11px] text-muted-foreground">
+                        key <code className="ml-1 font-mono">{m.api_key_masked}</code>
+                      </div>
+                    )}
+                    {m.description && (
+                      <p className="line-clamp-1 text-[12px] text-muted-foreground">
+                        {m.description}
+                      </p>
+                    )}
+                    {result && (
+                      <div
+                        className={cn(
+                          'mt-1 flex items-center gap-1.5 text-[11.5px]',
+                          result.ok ? 'text-chart-2' : 'text-chart-5',
+                        )}
+                      >
+                        {result.ok ? (
+                          <CheckCircle2 className="h-3 w-3" />
+                        ) : (
+                          <XCircle className="h-3 w-3" />
+                        )}
+                        <span className="truncate">
+                          {result.message}
+                          {result.reply ? ` · ${result.reply}` : ''}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right: enabled Switch + icon actions */}
+                  <div className="flex shrink-0 flex-col items-end gap-2.5">
+                    <Switch
+                      checked={m.enabled}
+                      onCheckedChange={() => handleToggle(m, 'enabled')}
+                      aria-label={m.enabled ? '点击停用' : '点击启用'}
+                    />
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        title={isTesting ? '测试中...' : '测试连通性'}
+                        onClick={() => handleTest(m)}
+                        disabled={isTesting}
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                      >
+                        {isTesting ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Activity className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        title={m.visible_to_users ? '对用户隐藏' : '对用户开放'}
+                        onClick={() => handleToggle(m, 'visible_to_users')}
+                        disabled={!m.enabled}
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                      >
+                        {m.visible_to_users ? (
+                          <EyeOff className="h-3.5 w-3.5" />
+                        ) : (
+                          <Eye className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        title={m.is_default ? '已是默认' : '设为默认'}
+                        onClick={() => handleSetDefault(m)}
+                        disabled={m.is_default || !m.enabled}
+                        className={cn(
+                          'flex h-7 w-7 items-center justify-center rounded hover:bg-accent disabled:opacity-40',
+                          m.is_default
+                            ? 'text-chart-4'
+                            : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        <Star className={cn('h-3.5 w-3.5', m.is_default && 'fill-current')} />
+                      </button>
+                      <button
+                        type="button"
+                        title="编辑"
+                        onClick={() => openEdit(m)}
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="删除"
+                        onClick={() => handleDelete(m)}
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </Card>
+              </div>
             );
           })}
         </div>

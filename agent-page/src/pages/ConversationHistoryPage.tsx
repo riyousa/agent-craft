@@ -9,16 +9,14 @@
  * Visual reference: design bundle (PSKRgbxCcC9dV9GvkEezKw),
  * `agent-craft/project/screens-user.jsx:33-124` ScreenHistory.
  *
- * Mock-backed fields (see design_update.md Phase 4):
- *   - is_starred, is_archived, tokens_total, tools_called, model_label
- *     → from mock/conversations.ts; replace with API when backend lands.
+ * `is_starred` / `tokens_total` / `tools_called` come from the
+ * `/user/conversations` response (real DB columns).
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Star,
   Search,
   Plus,
-  Archive,
   Trash2,
   MoreHorizontal,
   AlertTriangle,
@@ -61,7 +59,7 @@ import {
   EmptyState,
 } from '../components/design';
 import { cn } from '../lib/utils';
-import { statsFor, formatTokens, MOCK_MODEL_OPTIONS } from '../mock/conversations';
+import { formatTokens } from '../lib/formatters';
 
 interface ConversationHistoryPageProps {
   /** Click on a row to navigate back to chat with that thread loaded. */
@@ -110,7 +108,6 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [timeRange, setTimeRange] = useState<typeof TIME_RANGES[number]['value']>('all');
-  const [modelFilter, setModelFilter] = useState<string>('全部模型');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -152,14 +149,23 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
             : 0;
 
     return [...conversations]
-      .map((c) => ({ ...c, _stats: statsFor(c) }))
+      .map((c) => ({
+        ...c,
+        // Aggregates come from the real `/user/conversations`
+        // response. Defaults guard old rows that existed before the
+        // migration added the columns.
+        _stats: {
+          is_starred: c.is_starred ?? false,
+          tokens_total: c.tokens_total ?? 0,
+          tools_called: c.tools_called ?? 0,
+        },
+      }))
       .filter((c) => {
         if (q) {
           const hay = `${c.title} ${c.last_message || ''}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
         if (cutoff && parseServerTime(c.updated_at || c.created_at) < cutoff) return false;
-        if (modelFilter !== '全部模型' && c._stats.model_label !== modelFilter) return false;
         return true;
       })
       .sort(
@@ -167,7 +173,7 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
           parseServerTime(b.updated_at || b.created_at) -
           parseServerTime(a.updated_at || a.created_at),
       );
-  }, [conversations, searchQuery, timeRange, modelFilter]);
+  }, [conversations, searchQuery, timeRange]);
 
   const handleDelete = (c: ConversationListItem) => {
     showConfirm({
@@ -192,20 +198,11 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
     });
   };
 
-  // Star / archive / advanced filter / export rely on backend fields or
-  // routes that don't exist yet — Phase 4. Toast them so the affordance
-  // stays in the UI without lying about persistence.
+  // Advanced filter / export still need backend support. Toast them
+  // so the affordance stays in the UI without lying about persistence.
   const notImpl = (title: string, description: string) =>
     () => toast({ title, description });
 
-  const handleStarToggle = notImpl(
-    '收藏功能即将开放',
-    '后端尚未支持持久化收藏标记；当前的 ☆ 仅用于演示。',
-  );
-  const handleArchive = notImpl(
-    '归档功能即将开放',
-    '后端尚未支持归档；先用搜索 + 删除替代。',
-  );
   const handleAdvancedFilter = notImpl(
     '高级筛选即将开放',
     '正在准备按工具调用、Token 区间、状态码等多维度筛选。',
@@ -214,6 +211,29 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
     '导出即将开放',
     '后端尚未提供批量导出接口。',
   );
+
+  // Star toggle — real backend call (PUT /user/conversations/{tid}/star).
+  // Optimistic update so the UI reacts instantly; on failure we roll back
+  // and surface the error.
+  const handleStarToggle = async (c: ConversationListItem) => {
+    const next = !(c.is_starred ?? false);
+    setConversations((prev) =>
+      prev.map((x) => (x.id === c.id ? { ...x, is_starred: next } : x)),
+    );
+    try {
+      await chatApi.starConversation(c.thread_id, next);
+    } catch (err: any) {
+      // Roll back the optimistic toggle.
+      setConversations((prev) =>
+        prev.map((x) => (x.id === c.id ? { ...x, is_starred: !next } : x)),
+      );
+      toast({
+        variant: 'destructive',
+        title: next ? '收藏失败' : '取消收藏失败',
+        description: err?.response?.data?.detail || err?.message || '请稍后再试',
+      });
+    }
+  };
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -241,23 +261,12 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
         <div className="w-full px-7 pt-6 pb-12">
           <PageTitle
             title="对话历史"
-            description="查看、检索、归档你与 Agent 的所有会话。删除对话不会撤销已执行的工具操作。"
+            description="查看、检索你与 Agent 的所有会话。删除对话不会撤销已执行的工具操作。"
             actions={
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleArchive}
-                  className="gap-1.5"
-                >
-                  <Archive className="h-3.5 w-3.5" />
-                  归档全部
-                </Button>
-                <Button size="sm" onClick={onNewConversation} className="gap-1.5">
-                  <Plus className="h-3.5 w-3.5" />
-                  新对话
-                </Button>
-              </>
+              <Button size="sm" onClick={onNewConversation} className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                新对话
+              </Button>
             }
           />
 
@@ -271,18 +280,6 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                 className="h-8 pl-8 text-[12.5px]"
               />
             </div>
-            <Select value={modelFilter} onValueChange={setModelFilter}>
-              <SelectTrigger className="h-8 w-[130px] text-[12.5px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MOCK_MODEL_OPTIONS.map((m) => (
-                  <SelectItem key={m} value={m}>
-                    {m}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <Select value={timeRange} onValueChange={(v) => setTimeRange(v as any)}>
               <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
                 <SelectValue />
@@ -313,14 +310,14 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
             </div>
           ) : filtered.length === 0 ? (
             <EmptyState
-              title={searchQuery || timeRange !== 'all' || modelFilter !== '全部模型' ? '没有匹配的对话' : '暂无对话历史'}
+              title={searchQuery || timeRange !== 'all' ? '没有匹配的对话' : '暂无对话历史'}
               description={
-                searchQuery || timeRange !== 'all' || modelFilter !== '全部模型'
+                searchQuery || timeRange !== 'all'
                   ? '调整筛选条件再试一次。'
                   : '在对话页面发送一条消息即可开始。'
               }
               action={
-                searchQuery || timeRange !== 'all' || modelFilter !== '全部模型' ? null : (
+                searchQuery || timeRange !== 'all' ? null : (
                   <Button size="sm" onClick={onNewConversation} className="gap-1.5">
                     <Plus className="h-3.5 w-3.5" />
                     新对话
@@ -338,18 +335,16 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                     without an "auto" column ballooning. */}
                 <colgroup>
                   <col className="w-[3%]" />
-                  <col className="w-[50%]" />
-                  <col className="w-[14%]" />
-                  <col className="w-[12%]" />
-                  <col className="w-[8%]" />
+                  <col className="w-[55%]" />
+                  <col className="w-[16%]" />
                   <col className="w-[10%]" />
+                  <col className="w-[13%]" />
                   <col className="w-[3%]" />
                 </colgroup>
                 <TableHeader>
                   <TableRow className="border-b-border bg-muted/40 hover:bg-muted/40">
                     <TableHead className="h-9 px-3"></TableHead>
                     <TableHead className="h-9 px-3">会话</TableHead>
-                    <TableHead className="h-9 px-3">模型</TableHead>
                     <TableHead className="h-9 px-3">工具 / 消息</TableHead>
                     <TableHead className="h-9 px-3 text-right">TOKENS</TableHead>
                     <TableHead className="h-9 px-3">更新于</TableHead>
@@ -368,7 +363,7 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleStarToggle();
+                            handleStarToggle(c);
                           }}
                           className={cn(
                             'flex h-7 w-7 items-center justify-center rounded transition-colors',
@@ -395,9 +390,6 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                             <span className="truncate text-[13px] font-medium text-foreground">
                               {c.title || '未命名对话'}
                             </span>
-                            {c._stats.is_archived && (
-                              <Pill tone="outline">已归档</Pill>
-                            )}
                           </div>
                           {c.last_message && (
                             <span className="truncate text-[11.5px] leading-tight text-muted-foreground">
@@ -405,9 +397,6 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                             </span>
                           )}
                         </div>
-                      </TableCell>
-                      <TableCell className="px-3 py-1.5">
-                        <Pill tone="outline">{c._stats.model_label}</Pill>
                       </TableCell>
                       <TableCell className="px-3 py-1.5 font-mono text-[12px] text-muted-foreground whitespace-nowrap">
                         {c._stats.tools_called} 工具 · {c.message_count} 条
@@ -433,10 +422,9 @@ export const ConversationHistoryPage: React.FC<ConversationHistoryPageProps> = (
                             <DropdownMenuItem onClick={() => onSelectConversation(c.thread_id)}>
                               打开
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={handleStarToggle}>
+                            <DropdownMenuItem onClick={() => handleStarToggle(c)}>
                               {c._stats.is_starred ? '取消收藏' : '收藏'}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={handleArchive}>归档</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={() => handleDelete(c)}

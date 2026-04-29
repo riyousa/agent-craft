@@ -50,7 +50,7 @@ make dev          # both
 - CRA project — use relative imports in agent-page, not `@/` aliases
 - After `npx shadcn add`, fix imports from `@/lib/utils` to `../../lib/utils`
 - Backend paths are relative to `agent-api/` (data/, logs/, .env all inside)
-- No Alembic — schema changes via `ALTER TABLE` directly on SQLite
+- Schema changes via Alembic: `cd agent-api && alembic revision -m "..."`, edit the generated file, then `alembic upgrade head`. Existing migrations live under `agent-api/alembic/versions/`.
 - Only keep 3 doc files: README.md, BACKEND.md, FRONTEND.md — no changelogs
 
 ## 文档更新规范

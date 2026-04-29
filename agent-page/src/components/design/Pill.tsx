@@ -2,7 +2,7 @@
  * Pill — semantic colored chip used everywhere lists need a status/risk/source label.
  *
  * Wraps shadcn `Badge` so we have one place to control radii, padding, and
- * the seven semantic colors used in the v3 design (`design_update.md` Phase 0).
+ * the seven semantic colors used in the v3 design.
  *
  * Variants map directly to the design's color tokens; each variant has its
  * own light + dark mode treatment via Tailwind theme variables, so callers
