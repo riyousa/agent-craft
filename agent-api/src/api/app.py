@@ -33,19 +33,41 @@ from src.utils.logger import api_logger
 from langchain_core.messages import HumanMessage
 
 
-def _build_human_message(text: str, file_urls: list = None) -> HumanMessage:
+def _build_human_message(
+    text: str,
+    file_urls: list = None,
+    *,
+    original_file_urls: list = None,
+) -> HumanMessage:
     """Build a HumanMessage, using multimodal content if files are present.
 
-    URL detection rules:
-      - `file-...`        → Doubao Files API id, emit `image_url` block
-                            (Doubao multimodal chat resolves the id internally).
+    `file_urls` are the **bridged** URLs the LLM should consume (data: /
+    oss: / http(s) / file-xxx). `original_file_urls` are the user-facing
+    URLs (`/assets/<id>?sig=...`) — they live on `additional_kwargs` so
+    the conversation loader can render them in the user bubble even
+    though the bridged URLs (data: blobs / Files API ids) are no longer
+    suitable for an `<img>` tag.
+
+    URL detection rules for the bridged content list:
+      - `data:<mime>;base64,...` → inline image data URL (Doubao image
+                            bridge produces these; OpenAI-compatible).
       - `oss://...`       → Qwen DashScope temp asset, emit `image_url`.
       - any image extension (.jpg/.png/...) → `image_url`.
+      - `file-...`        → Doubao Files API id (PDFs/docs/videos);
+                            multimodal chat rejects these in image_url
+                            ("Only base64, http or https URLs are
+                            supported"), so emit a text reference.
       - everything else   → text reference, so the model at least sees
                             that an attachment exists (download itself
                             happens out-of-band).
     """
+    additional_kwargs: dict = {}
+    if original_file_urls:
+        additional_kwargs["original_file_urls"] = [str(u) for u in original_file_urls]
+
     if not file_urls:
+        if additional_kwargs:
+            return HumanMessage(content=text, additional_kwargs=additional_kwargs)
         return HumanMessage(content=text)
 
     image_exts = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp')
@@ -54,12 +76,17 @@ def _build_human_message(text: str, file_urls: list = None) -> HumanMessage:
         url_str = str(url)
         lower = url_str.lower()
         is_image = lower.endswith(image_exts)
-        is_doubao_file = url_str.startswith("file-")
+        is_data_image = lower.startswith("data:image/")
         is_qwen_oss = lower.startswith("oss://")
-        if is_image or is_doubao_file or is_qwen_oss:
+        if is_image or is_data_image or is_qwen_oss:
             content.append({"type": "image_url", "image_url": {"url": url_str}})
         else:
-            content.append({"type": "text", "text": f"\n[附件: {url_str}]"})
+            # Files API ids (`file-xxx`) and unknown URLs land here —
+            # surface them as a text reference rather than a bogus
+            # image_url block. The model sees that an attachment exists;
+            # the actual lookup happens out-of-band.
+            label = url_str if not url_str.startswith("file-") else f"已上传文件 {url_str}"
+            content.append({"type": "text", "text": f"\n[附件: {label}]"})
 
     return HumanMessage(content=content)
 import json
@@ -301,7 +328,11 @@ async def chat(
         )
 
         initial_state = {
-            "messages": [_build_human_message(request.message, bridged_file_urls)],
+            "messages": [_build_human_message(
+                request.message,
+                bridged_file_urls,
+                original_file_urls=request.file_urls or [],
+            )],
             "user_info": user_info,
             "current_skill": "",
             "approval_granted": False,  # Reset approval flag for new message
@@ -377,7 +408,11 @@ async def chat_stream(
             )
 
             initial_state = {
-                "messages": [_build_human_message(request.message, bridged_file_urls)],
+                "messages": [_build_human_message(
+                request.message,
+                bridged_file_urls,
+                original_file_urls=request.file_urls or [],
+            )],
                 "user_info": user_info,
                 "current_skill": "",
                 "approval_granted": False,  # Reset approval flag for new message
@@ -564,6 +599,26 @@ async def chat_stream(
                             if m.__class__.__name__ == "HumanMessage" and m.content:
                                 _title = _text(m.content)[:50]; break
 
+                        # Per-conversation aggregates:
+                        # `tools_called` = count of ToolMessage records in
+                        # state — one per tool/skill execution. `tokens_total`
+                        # sums `usage_total_tokens` stashed on AIMessage by
+                        # OpenAICompatibleLLM. We recompute from full state
+                        # each turn (rather than +=) so retries / forks /
+                        # rollbacks self-correct without drift.
+                        _tools_called = sum(
+                            1 for m in _msgs if m.__class__.__name__ == "ToolMessage"
+                        )
+                        _tokens_total = 0
+                        for m in _msgs:
+                            if m.__class__.__name__ != "AIMessage":
+                                continue
+                            kw = getattr(m, 'additional_kwargs', None) or {}
+                            try:
+                                _tokens_total += int(kw.get('usage_total_tokens') or 0)
+                            except (TypeError, ValueError):
+                                pass
+
                         async with AsyncSessionLocal() as _db:
                             r = await _db.execute(_sel(_CH).where(_CH.thread_id == request.thread_id, _CH.user_id == _uid))
                             conv = r.scalar_one_or_none()
@@ -571,13 +626,20 @@ async def chat_stream(
                                 conv.message_count = _count
                                 conv.last_message = _last
                                 conv.updated_at = _utc_now()
+                                conv.tokens_total = _tokens_total
+                                conv.tools_called = _tools_called
                                 if _title and not conv.title: conv.title = _title
                             else:
                                 _now = _utc_now()
                                 _db.add(_CH(user_id=_uid, thread_id=request.thread_id, title=_title or "新对话",
-                                           message_count=_count, last_message=_last, created_at=_now, updated_at=_now))
+                                           message_count=_count, last_message=_last,
+                                           tokens_total=_tokens_total, tools_called=_tools_called,
+                                           created_at=_now, updated_at=_now))
                             await _db.commit()
-                            api_logger.info(f"[finally] Saved conversation: {request.thread_id}")
+                            api_logger.info(
+                                f"[finally] Saved conversation: {request.thread_id} "
+                                f"(msgs={_count} tools={_tools_called} tokens={_tokens_total})"
+                            )
             except Exception as _e:
                 api_logger.error(f"[finally] Failed to save conversation: {_e}")
 

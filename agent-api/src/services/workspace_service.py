@@ -132,8 +132,10 @@ class WorkspaceService:
         )
         db.add(user_file)
 
-        # 更新工作空间使用量
-        workspace.used_storage_mb += size_bytes / (1024 * 1024)
+        # `used_storage_mb` was a cached counter that quietly truncated
+        # every sub-MB write because the column is INTEGER. It's now
+        # recomputed live from `user_files.size_bytes` in the workspace
+        # info endpoint, so we don't maintain it here anymore.
         await db.commit()
         await db.refresh(user_file)
 
@@ -222,21 +224,24 @@ class WorkspaceService:
         # 标记为已删除
         user_file.is_deleted = True
 
-        # 删除实际文件
-        workspace = await self.get_or_create_workspace(user_id, db)
-        file_path = Path(workspace.workspace_path) / user_file.filepath
+        # 尝试删除磁盘上的实际文件。任何文件系统错误（权限不足、磁盘
+        # 锁定、路径已经被外部清理等）都不应阻断逻辑删除——DB 行已
+        # 经标了 is_deleted，用户视图里就不会再看到该文件。
+        try:
+            workspace = await self.get_or_create_workspace(user_id, db)
+            file_path = Path(workspace.workspace_path) / user_file.filepath
+            if file_path.exists():
+                file_path.unlink()
+        except Exception as fs_err:  # pragma: no cover - non-fatal
+            from src.utils.logger import api_logger
+            api_logger.warning(
+                f"[delete_file] disk unlink failed for file_id={file_id}: {fs_err!r}"
+            )
 
-        if file_path.exists():
-            file_path.unlink()
-
-        # 更新工作空间使用量
-        workspace_result = await db.execute(
-            select(UserWorkspace).where(UserWorkspace.id == user_file.workspace_id)
-        )
-        workspace = workspace_result.scalar_one_or_none()
-        if workspace:
-            workspace.used_storage_mb -= user_file.size_bytes / (1024 * 1024)
-
+        # No `used_storage_mb` decrement — workspace info now aggregates
+        # live from `user_files.size_bytes WHERE is_deleted = false`,
+        # so flipping the soft-delete flag above is enough to reflect
+        # the freed quota on the next read.
         await db.commit()
         return True
 

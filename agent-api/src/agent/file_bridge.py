@@ -12,6 +12,8 @@ even if the upload bridge is misconfigured.
 """
 from __future__ import annotations
 
+import base64
+import mimetypes
 import re
 from typing import List, Optional
 
@@ -22,6 +24,23 @@ from src.models import UserFile
 from src.services.llm_service import resolve_model
 from src.services.workspace_service import workspace_service
 from src.utils.logger import api_logger
+
+
+def _guess_image_mime(filename: str, declared: Optional[str]) -> Optional[str]:
+    """Best-effort image mime resolver. Returns None if not an image."""
+    mt = (declared or "").lower()
+    if mt.startswith("image/"):
+        return mt
+    guess, _ = mimetypes.guess_type(filename or "")
+    if guess and guess.startswith("image/"):
+        return guess
+    return None
+
+
+def _to_data_url(file_bytes: bytes, mime: str) -> str:
+    """Encode bytes as a `data:<mime>;base64,...` URL (RFC 2397)."""
+    payload = base64.b64encode(file_bytes).decode("ascii")
+    return f"data:{mime};base64,{payload}"
 
 
 # Path-only match — query string is whatever (signed). We only need the id.
@@ -119,15 +138,26 @@ async def rewrite_file_urls_for_model(
                     file_bytes=file_bytes,
                 )
             else:  # doubao
-                from src.agent.llm_providers.doubao_uploader import upload_local_file as doubao_upload
-                bridged = await doubao_upload(
-                    api_key=cfg.api_key,
-                    base_url=cfg.base_url,
-                    model_name=cfg.model,
-                    file_id=user_file.id,
-                    file_name=user_file.filename,
-                    file_bytes=file_bytes,
-                )
+                # Doubao chat API rejects Files API ids in image_url:
+                #   "Only base64, http or https URLs are supported"
+                # So for images we inline as a base64 data URL — works
+                # universally for OpenAI-compatible image_url blocks. For
+                # non-images (PDF / video / docs) fall back to the Files
+                # API; downstream `_build_human_message` will emit those
+                # as text references rather than image_url blocks.
+                image_mime = _guess_image_mime(user_file.filename, user_file.mime_type)
+                if image_mime:
+                    bridged = _to_data_url(file_bytes, image_mime)
+                else:
+                    from src.agent.llm_providers.doubao_uploader import upload_local_file as doubao_upload
+                    bridged = await doubao_upload(
+                        api_key=cfg.api_key,
+                        base_url=cfg.base_url,
+                        model_name=cfg.model,
+                        file_id=user_file.id,
+                        file_name=user_file.filename,
+                        file_bytes=file_bytes,
+                    )
             out.append(bridged)
         except Exception as e:
             api_logger.error(

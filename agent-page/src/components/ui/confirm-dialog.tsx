@@ -17,7 +17,7 @@ interface ConfirmDialogProps {
   onClose: () => void;
   onConfirm: () => void;
   title: string;
-  description?: string;
+  description?: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   variant?: 'danger' | 'warning' | 'info' | 'success';
@@ -58,7 +58,11 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             {title}
           </AlertDialogTitle>
           {description && (
-            <AlertDialogDescription>{description}</AlertDialogDescription>
+            <AlertDialogDescription asChild>
+              <div className="text-sm text-muted-foreground break-words">
+                {description}
+              </div>
+            </AlertDialogDescription>
           )}
         </AlertDialogHeader>
         <Separator />
@@ -84,7 +88,7 @@ export const useConfirmDialog = () => {
   const [dialogState, setDialogState] = React.useState<{
     isOpen: boolean;
     title: string;
-    description?: string;
+    description?: React.ReactNode;
     confirmText?: string;
     cancelText?: string;
     variant?: 'danger' | 'warning' | 'info' | 'success';
@@ -98,7 +102,7 @@ export const useConfirmDialog = () => {
 
   const showConfirm = (options: {
     title: string;
-    description?: string;
+    description?: React.ReactNode;
     confirmText?: string;
     cancelText?: string;
     variant?: 'danger' | 'warning' | 'info' | 'success';

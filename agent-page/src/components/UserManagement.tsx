@@ -3,6 +3,7 @@ import { adminUserApi, ManagedUser } from '../api/client';
 import {
   Users, Plus, Edit2, Trash2, KeyRound, Search, Tag,
   Shield, ShieldCheck, User as UserIcon, Ban, CheckCircle, ArrowUpDown,
+  MoreHorizontal, Loader2,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -15,8 +16,19 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from './ui/alert-dialog';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from './ui/table';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { useToast } from '../hooks/use-toast';
 import { useAuth } from '../contexts/AuthContext';
+import {
+  PageHeader, PageTitle, Pill, StatCard, EmptyState, Toolbar, TablePagination,
+} from './design';
+import { cn } from '../lib/utils';
 
 const ROLE_MAP: Record<number, { label: string; icon: React.ElementType; color: string }> = {
   1: { label: '普通用户', icon: UserIcon, color: '' },
@@ -166,132 +178,226 @@ export const UserManagement: React.FC = () => {
 
   const totalPages = Math.ceil(total / pageSize);
 
-  if (loading && users.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
-      </div>
-    );
-  }
+  // Stat cards aggregate from the in-memory user list. Per-user token
+  // usage / spend / last-active metrics were dropped — surfacing them
+  // properly needs a `usage_monthly` table that's out of scope.
+  const activeUsers = users.filter((u) => u.is_active).length;
+  const disabledUsers = users.filter((u) => !u.is_active).length;
 
   return (
-    <div className="container mx-auto p-6 max-w-7xl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <p className="text-sm text-muted-foreground">共 {total} 个用户</p>
-        <div className="flex items-center gap-3">
-          <div className="flex gap-2">
-            <Input
-              placeholder="搜索姓名或手机号"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              className="w-56"
+    <div className="flex h-full flex-col bg-background">
+      <PageHeader
+        breadcrumb={['管理', '用户管理']}
+        subtitle={`共 ${total} 人 · ${disabledUsers} 已停用`}
+      />
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="w-full px-7 pt-6 pb-12">
+          <PageTitle
+            title="用户管理"
+            description="管理可访问 Agent Craft 的用户、角色与所属团队。L3 超管可指派角色，编辑创建全局工具与技能，L2 可创建用户，L1 用户仅可发起对话，修改自己的工具与技能。"
+            actions={
+              <Button size="sm" onClick={() => setShowCreateDialog(true)} className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                创建用户
+              </Button>
+            }
+          />
+
+          {/* Stat row — backend-backed counts only. Token / spend
+              cards retired with the user_usage mock. */}
+          <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3">
+            <StatCard label="共 N 人" value={total} sub={`${activeUsers} 活跃`} trend="up" />
+            <StatCard
+              label="活跃"
+              value={activeUsers}
+              sub={`占 ${total ? Math.round((activeUsers / total) * 100) : 0}%`}
             />
-            <Button variant="outline" size="icon" onClick={handleSearch}>
-              <Search className="w-4 h-4" />
-            </Button>
+            <StatCard
+              label="已停用"
+              value={disabledUsers}
+              sub={disabledUsers > 0 ? '需要清理' : '——'}
+              trend={disabledUsers > 0 ? 'down' : 'flat'}
+            />
           </div>
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-40">
-              <ArrowUpDown className="w-4 h-4 mr-2" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="role-desc">角色 ↓ + 时间</SelectItem>
-              <SelectItem value="role-asc">角色 ↑ + 时间</SelectItem>
-              <SelectItem value="time-desc">最新创建</SelectItem>
-              <SelectItem value="time-asc">最早创建</SelectItem>
-              <SelectItem value="name">名称排序</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button onClick={() => setShowCreateDialog(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            创建用户
-          </Button>
+
+          <Toolbar>
+            <div className="relative flex-1 min-w-[240px]">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                placeholder="搜索姓名 / 手机号 / 邮箱…"
+                className="h-8 pl-8 text-[12.5px]"
+              />
+            </div>
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="h-8 w-[150px] text-[12.5px]">
+                <ArrowUpDown className="mr-1.5 h-3.5 w-3.5" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="role-desc">角色 ↓ + 时间</SelectItem>
+                <SelectItem value="role-asc">角色 ↑ + 时间</SelectItem>
+                <SelectItem value="time-desc">最新创建</SelectItem>
+                <SelectItem value="time-asc">最早创建</SelectItem>
+                <SelectItem value="name">名称排序</SelectItem>
+              </SelectContent>
+            </Select>
+          </Toolbar>
+
+          {loading && users.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              加载中...
+            </div>
+          ) : sortedUsers.length === 0 ? (
+            <EmptyState
+              icon={<Users className="h-5 w-5" />}
+              title="暂无用户"
+              description='点击「创建用户」添加你的第一个用户。'
+              action={
+                <Button size="sm" onClick={() => setShowCreateDialog(true)} className="gap-1.5">
+                  <Plus className="h-3.5 w-3.5" />
+                  创建用户
+                </Button>
+              }
+            />
+          ) : (
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <Table className="table-fixed min-w-[640px]">
+                <colgroup>
+                  <col className="w-[40%]" />
+                  <col className="w-[18%]" />
+                  <col className="w-[20%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[8%]" />
+                </colgroup>
+                <TableHeader>
+                  <TableRow className="border-b-border bg-muted/40 hover:bg-muted/40">
+                    <TableHead className="h-9 px-3">用户</TableHead>
+                    <TableHead className="h-9 px-3">角色</TableHead>
+                    <TableHead className="h-9 px-3">团队</TableHead>
+                    <TableHead className="h-9 px-3">状态</TableHead>
+                    <TableHead className="h-9 px-3"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedUsers.map((u) => {
+                    return (
+                      <TableRow key={u.id} className="cursor-default">
+                        <TableCell className="min-w-0 px-3 py-1.5">
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <div className={cn(
+                              'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                              u.is_active
+                                ? 'bg-primary/10 text-primary'
+                                : 'bg-muted text-muted-foreground',
+                            )}>
+                              {u.name.charAt(0)}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <span className="truncate text-[13px] font-medium text-foreground">
+                                  {u.name}
+                                </span>
+                                {u.id === currentUser?.id && (
+                                  <Pill tone="outline">当前</Pill>
+                                )}
+                              </div>
+                              <div className="truncate font-mono text-[11px] text-muted-foreground">
+                                {u.email || u.phone}
+                              </div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5">
+                          {u.role_level === 3 ? (
+                            <Pill tone="accent">L3 超管</Pill>
+                          ) : u.role_level === 2 ? (
+                            <Pill tone="info">L2 管理</Pill>
+                          ) : (
+                            <Pill tone="outline">L1 用户</Pill>
+                          )}
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5">
+                          {/* "团队" reads from the user's own tags so
+                              admins keep one source of truth. Multiple
+                              tags render as compact outline pills; no
+                              tags falls back to a muted dash. */}
+                          {u.tags && u.tags.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {u.tags.slice(0, 2).map((t) => (
+                                <Pill key={t} tone="outline">{t}</Pill>
+                              ))}
+                              {u.tags.length > 2 && (
+                                <Pill tone="outline">+{u.tags.length - 2}</Pill>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[12px] text-muted-foreground">——</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5">
+                          {u.is_active ? (
+                            <Pill tone="success" dot>活跃</Pill>
+                          ) : (
+                            <Pill tone="neutral" dot>已停用</Pill>
+                          )}
+                        </TableCell>
+                        <TableCell className="px-3 py-1.5">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEdit(u)}>
+                                <Edit2 className="mr-2 h-3.5 w-3.5" />
+                                编辑
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => { setResetPwUser(u); setNewPassword(''); }}>
+                                <KeyRound className="mr-2 h-3.5 w-3.5" />
+                                重置密码
+                              </DropdownMenuItem>
+                              {currentUser?.role_level === 3 && u.id !== currentUser?.id && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => setDeleteUser(u)}
+                                    className="text-destructive focus:text-destructive"
+                                  >
+                                    <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                    删除
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          <TablePagination
+            page={page}
+            totalPages={totalPages}
+            totalItems={total}
+            onPageChange={setPage}
+            hint={`共 ${total} 条 · 每页 ${pageSize}`}
+          />
+          {/* (server-side paginated via adminUserApi.listUsers) */}
         </div>
       </div>
-
-      {/* User Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {sortedUsers.length === 0 ? (
-          <Card className="col-span-full">
-            <CardContent className="flex flex-col items-center justify-center py-16">
-              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <Users className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">暂无用户</h3>
-              <p className="text-muted-foreground">点击"创建用户"添加</p>
-            </CardContent>
-          </Card>
-        ) : (
-          sortedUsers.map((u) => {
-            const role = ROLE_MAP[u.role_level] || ROLE_MAP[1];
-            const RoleIcon = role.icon;
-            return (
-              <Card key={u.id} className={`flex flex-col transition-all hover:shadow-md ${!u.is_active ? 'opacity-60' : ''}`}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm ${u.is_active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                      {u.name.charAt(0)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <CardTitle className="text-base">{u.name}</CardTitle>
-                      <CardDescription>{u.phone}</CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="flex-1 pb-3">
-                  <div className="flex gap-2 flex-wrap">
-                    <Badge variant="outline" className={role.color}>
-                      <RoleIcon className="w-3 h-3 mr-1" />
-                      {role.label}
-                    </Badge>
-                    {!u.is_active && <Badge variant="destructive">已禁用</Badge>}
-                    {u.id === currentUser?.id && <Badge variant="secondary">当前用户</Badge>}
-                  </div>
-                  {u.email && <p className="text-xs text-muted-foreground mt-2 truncate">{u.email}</p>}
-                  {u.tags && u.tags.length > 0 && (
-                    <div className="flex gap-1 mt-2 flex-wrap">
-                      {u.tags.map(t => (
-                        <Badge key={t} variant="secondary" className="text-[10px] px-1.5 py-0">
-                          <Tag className="w-2.5 h-2.5 mr-0.5" />{t}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-                <Separator />
-                <div className="flex items-center justify-end gap-1 p-3">
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(u)}>
-                    <Edit2 className="w-4 h-4 mr-1.5" />
-                    编辑
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => { setResetPwUser(u); setNewPassword(''); }}>
-                    <KeyRound className="w-4 h-4 mr-1.5" />
-                    重置密码
-                  </Button>
-                  {currentUser?.role_level === 3 && u.id !== currentUser?.id && (
-                    <Button variant="ghost" size="sm" className="text-chart-5 hover:text-chart-5" onClick={() => setDeleteUser(u)}>
-                      <Trash2 className="w-4 h-4 mr-1.5" />
-                      删除
-                    </Button>
-                  )}
-                </div>
-              </Card>
-            );
-          })
-        )}
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex justify-center items-center gap-2 mt-6">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>上一页</Button>
-          <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
-          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>下一页</Button>
-        </div>
-      )}
 
       {/* Create Dialog */}
       <AlertDialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>

@@ -156,12 +156,37 @@ export interface ConversationMessages {
 
 // ========== User API Client ==========
 
+// Per-tool / per-skill 7-day aggregates served by
+// `GET /user/tools/metrics` and `GET /user/skills/metrics`.
+export interface ToolMetric {
+  calls_7d: number;
+  p95_ms: number;
+}
+export interface SkillMetric {
+  runs_7d: number;
+  users_using: number;
+  p95_ms: number;
+}
+export type ToolMetricsMap = Record<string, ToolMetric>;
+export type SkillMetricsMap = Record<string, SkillMetric>;
+
+
 class UserApiClient {
   // Tools
 
   async listTools(): Promise<UserTool[]> {
     const response = await apiClient.get('/user/tools');
     return response.data;
+  }
+
+  async listToolMetrics(): Promise<ToolMetricsMap> {
+    const response = await apiClient.get('/user/tools/metrics');
+    return response.data || {};
+  }
+
+  async listSkillMetrics(): Promise<SkillMetricsMap> {
+    const response = await apiClient.get('/user/skills/metrics');
+    return response.data || {};
   }
 
   async createTool(tool: UserTool): Promise<UserTool> {

@@ -249,11 +249,14 @@ async def list_items(...):
 DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/system_agent
 ```
 
-PostgreSQL 初始化（仅需创建空库；表结构由应用启动时 `Base.metadata.create_all()` 自动建出）：
+PostgreSQL 初始化（创建空库 → 用 Alembic 把表打进去）：
 
 ```bash
 psql -U postgres -c "CREATE DATABASE system_agent;"
+cd agent-api && alembic upgrade head
 ```
+
+> 注：应用启动时仍会兜底跑一次 `Base.metadata.create_all()`，但**新字段 / 新表请走 Alembic**——`create_all` 不会改既有表结构，不能用来追列。
 
 ### 数据库模型
 
@@ -268,13 +271,37 @@ class MyModel(Base, TimestampMixin):
     # ...
 ```
 
-新增字段需手动 ALTER TABLE（项目未使用 Alembic）：
+**新增字段 / 表走 Alembic**（`agent-api/alembic/`）：
+
 ```bash
-# SQLite
-sqlite3 data/agent.db "ALTER TABLE users ADD COLUMN new_field TEXT DEFAULT '';"
-# PostgreSQL
-psql -d system_agent -c "ALTER TABLE users ADD COLUMN new_field TEXT DEFAULT '';"
+cd agent-api
+# 1. 改模型（src/models/...）
+# 2. 生成迁移
+alembic revision -m "add user.new_field"
+# 3. 编辑 versions/<id>_*.py 里的 upgrade() / downgrade()
+#    （也可以 `alembic revision --autogenerate -m "..."`，但生成后务必人工核对）
+# 4. 应用
+alembic upgrade head
+
+# 常用：
+alembic current     # 当前 head
+alembic history     # 全部版本
+alembic downgrade -1  # 回滚一步
 ```
+
+`env.py` 已经把所有模型模块预先 import 进 `Base.metadata`，autogenerate 能识别新增字段。SQLite 与 PostgreSQL 都走同一套迁移；env.py 自动把 `+asyncpg` / `+aiosqlite` driver name 翻译成 sync 形式给 Alembic 用。
+
+### 对话聚合 & 工具/技能指标
+
+| 表 / 列                          | 写入路径                                                                                                                       | 读取路径                                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `conversation_history.is_starred`  | `PUT /user/conversations/{tid}/star { value: bool }` 直接写                                                                     | `GET /user/conversations` 列表里返回                                                       |
+| `conversation_history.tokens_total` | `OpenAICompatibleLLM` 在每次调用结束时把 `usage.total_tokens` 写进 `AIMessage.additional_kwargs['usage_total_tokens']`；chat 流 finally 块按 state 里所有 AIMessage 重算总和 | 同上                                                                                       |
+| `conversation_history.tools_called` | chat 流 finally 块按 state 里 `ToolMessage` 总数重算                                                                            | 同上                                                                                       |
+| `tool_invocations`                | `agent/nodes.py::execute_tools_with_audit` 在 `ToolNode.ainvoke` 前后 timing，finally 块按当轮 `tool_call` 写一行（同批共享 `latency_ms`） | `GET /user/tools/metrics` → `{ [name]: {calls_7d, p95_ms} }`，PG 用 `percentile_disc(0.95)` |
+| `skill_runs`                      | 同上，name 以 `skill_` 开头时分流到这里（agent 把技能当作单条 tool 调度，一行 = 一次完整技能执行）                            | `GET /user/skills/metrics` → `{ [name]: {runs_7d, users_using, p95_ms} }`                  |
+
+聚合用 7 天窗口（`WHERE created_at >= now() - 7d`），`tokens_total` / `tools_called` 每轮**按全 state 重算**而非 `+=`，这样 retry / fork / rollback 都会自洽，不会因为缺少回滚分支累积漂移。
 
 ### 文件附件桥接（File bridge）
 

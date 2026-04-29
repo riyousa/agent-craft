@@ -13,16 +13,18 @@ import {
   Plus,
   Edit2,
   Trash2,
+  Send,
   AlertCircle,
   Lock,
   Unlock,
   Copy,
   ChevronDown,
   ChevronRight,
-  Pause,
   Play,
   Lightbulb,
   Zap,
+  Search,
+  CheckCircle2,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -32,8 +34,17 @@ import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Separator } from './ui/separator';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { Drawer, DrawerContent } from './ui/drawer';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from './ui/table';
+import { Switch } from './ui/switch';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field, AutoGrowTextarea, TablePagination } from './design';
+import { formatRuns, formatLatencyMs } from '../lib/formatters';
+import type { SkillMetricsMap } from '../api/user';
+import { cn } from '../lib/utils';
 
 type ViewMode = 'list' | 'create' | 'edit';
 
@@ -69,9 +80,12 @@ interface SkillsManagerProps {
   api?: SkillsApi;
   toolsApi?: ToolsApi;
   onBack?: () => void;
+  /** Optional row-level assign action — when provided AND we're in
+   *  admin mode, the table renders a Send icon button next to Edit. */
+  onAssignClick?: (skill: UserSkill) => void;
 }
 
-export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onBack }) => {
+export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onBack, onAssignClick }) => {
   const skillsApi: SkillsApi = api || userApi;
   const toolsApiForDeps: ToolsApi = toolsApi || userApi;
   const isAdminMode = !!api;
@@ -81,11 +95,24 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
   const [tools, setTools] = useState<UserTool[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState<'time-desc' | 'time-asc' | 'name'>('time-desc');
+  // List-view filter state — purely client-side until the backend
+  // exposes server-side filtering hooks (Phase 4).
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'user_created' | 'admin_assigned'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled' | 'approval'>('all');
+  // Pagination is client-side; the unsliced `tools` array is what the
+  // skill editor's dependency picker reads, so paginating the table
+  // doesn't shrink what models can pick from.
+  const SKILLS_PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedSkill, setSelectedSkill] = useState<UserSkill | null>(null);
 
   // AI Helper state
   const [aiDescription, setAiDescription] = useState('');
+  // Mobile-only AI assistant trigger — desktop right pane hides under
+  // the md breakpoint (would crowd a phone), so we surface a Drawer.
+  const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState('');
 
@@ -111,6 +138,11 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
     requires_approval: false,
   });
 
+  // Keyed by `skill.name`; one fetch per list load. Powers the
+  // 7天运行 / P95 columns; admin pages skip since the admin API
+  // doesn't expose metrics.
+  const [skillMetrics, setSkillMetrics] = useState<SkillMetricsMap>({});
+
   useEffect(() => {
     loadSkills();
     loadTools();
@@ -126,8 +158,16 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
   const loadSkills = async () => {
     setLoading(true);
     try {
-      const data = await skillsApi.listSkills();
+      const [data, metrics] = await Promise.all([
+        skillsApi.listSkills(),
+        // Admin skill API doesn't expose metrics; only the per-user
+        // endpoint does. Skip silently in admin mode.
+        isAdminMode
+          ? Promise.resolve({} as SkillMetricsMap)
+          : userApi.listSkillMetrics().catch(() => ({} as SkillMetricsMap)),
+      ]);
       setSkills(data);
+      setSkillMetrics(metrics);
     } catch (error) {
       toast({ variant: "destructive", title: "加载失败", description: "无法加载技能列表" });
     } finally {
@@ -401,146 +441,530 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
   });
 
   if (viewMode === 'list') {
-    return (
-      <div className="container mx-auto p-6 max-w-7xl">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            {onBack && (
-              <>
-                <Button variant="ghost" size="sm" onClick={onBack}>← 返回</Button>
-                <Separator orientation="vertical" className="h-4" />
-              </>
-            )}
-            <p className="text-sm text-muted-foreground">
-              共 {skills.length} 个技能
-            </p>
-            <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
-              <SelectTrigger className="w-32 h-8"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="time-desc">最新优先</SelectItem>
-                <SelectItem value="time-asc">最早优先</SelectItem>
-                <SelectItem value="name">按名称</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Button onClick={handleCreate}>
-            <Plus className="w-4 h-4 mr-2" />
-            创建技能
-          </Button>
-        </div>
+    const q = searchQuery.trim().toLowerCase();
+    const visibleSkills = sortedSkills.filter((s) => {
+      if (q) {
+        const hay = `${s.name} ${s.display_name || ''} ${s.description || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (sourceFilter !== 'all') {
+        const src = s.source || 'user_created';
+        if (sourceFilter !== src) return false;
+      }
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'enabled' && !s.enabled) return false;
+        if (statusFilter === 'disabled' && s.enabled) return false;
+        if (statusFilter === 'approval' && !s.requires_approval) return false;
+      }
+      return true;
+    });
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {skills.length === 0 ? (
-            <Card className="col-span-full">
-              <CardContent className="flex flex-col items-center justify-center py-16">
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                  <Zap className="w-8 h-8 text-muted-foreground" />
-                </div>
-                <h3 className="text-xl font-semibold mb-2">暂无技能</h3>
-                <p className="text-muted-foreground mb-4">点击"创建技能"按钮添加您的第一个技能</p>
-                <Button onClick={handleCreate}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  创建技能
+    const totalPages = Math.max(1, Math.ceil(visibleSkills.length / SKILLS_PAGE_SIZE));
+    const safePage = Math.min(page, totalPages);
+    const pagedSkills = visibleSkills.slice(
+      (safePage - 1) * SKILLS_PAGE_SIZE,
+      safePage * SKILLS_PAGE_SIZE,
+    );
+
+    const adminCount = skills.filter((s) => s.source === 'admin_assigned').length;
+    const userCount = skills.filter((s) => s.source === 'user_created' || !s.source).length;
+
+    return (
+      <div className="flex h-full flex-col bg-background">
+        <PageHeader
+          breadcrumb={isAdminMode ? ['管理', '全局技能'] : ['工作区', '技能']}
+          subtitle={isAdminMode ? `共 ${skills.length} 个全局技能` : `${adminCount} 全局 · ${userCount} 私有`}
+          actions={
+            onBack ? (
+              <Button variant="ghost" size="sm" onClick={onBack} className="h-7 px-2 text-[12px]">
+                ← 返回
+              </Button>
+            ) : undefined
+          }
+        />
+
+        <div className="flex-1 overflow-y-auto">
+          <div className="w-full px-7 pt-6 pb-12">
+            <PageTitle
+              title={isAdminMode ? '全局技能' : '技能'}
+              description={isAdminMode
+                ? '管理员维护的技能库。每条技能由若干工具编排而成，可整体下发给用户或调整启用状态。'
+                : '技能把多个工具按既定流程编排成 Agent 可一键调用的能力。可以为不同业务场景沉淀工作流，附带 prompt 模板和审批策略。'}
+              actions={
+                <Button size="sm" onClick={handleCreate} className="gap-1.5">
+                  <Plus className="h-3.5 w-3.5" />
+                  新建技能
                 </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            sortedSkills.map((skill) => (
-              <Card
-                key={skill.id}
-                className={`flex flex-col transition-all hover:shadow-md ${!skill.enabled ? 'opacity-60' : ''}`}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${skill.enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                        <Zap className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-base">{skill.display_name}</CardTitle>
-                        <code className="text-xs text-muted-foreground">{skill.name}</code>
-                      </div>
-                    </div>
-                  </div>
-                  <CardDescription className="mt-2 line-clamp-2">{skill.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="flex-1 pb-3">
-                  <div className="flex gap-2 flex-wrap mb-3">
-                    <Badge variant={skill.source === 'user_created' ? 'default' : 'secondary'}>
-                      {skill.source === 'user_created' ? '自建' : '系统'}
-                    </Badge>
-                    <Badge variant="outline">{skill.category}</Badge>
-                    {!skill.enabled && <Badge variant="outline">已停用</Badge>}
-                    {skill.requires_approval && (
-                      <Badge variant="outline" className="border-chart-4/50 text-chart-4">
-                        需审批
-                      </Badge>
-                    )}
-                  </div>
-                  {skill.required_tools && skill.required_tools.length > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      依赖 {skill.required_tools.length} 个工具
-                    </p>
-                  )}
-                </CardContent>
-                <Separator />
-                <div className="flex items-center justify-end gap-1 p-3">
-                  <Button variant="ghost" size="sm" onClick={() => handleToggleEnabled(skill)}>
-                    {skill.enabled ? <Pause className="w-4 h-4 mr-1.5" /> : <Play className="w-4 h-4 mr-1.5" />}
-                    {skill.enabled ? '停用' : '启用'}
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleEdit(skill)}>
-                    <Edit2 className="w-4 h-4 mr-1.5" />
-                    编辑
-                  </Button>
-                  {(isAdminMode || skill.source === 'user_created') && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(skill)}
-                      className="text-chart-5 hover:text-chart-5"
-                    >
-                      <Trash2 className="w-4 h-4 mr-1.5" />
-                      删除
+              }
+            />
+
+            <Toolbar>
+              <div className="relative flex-1 min-w-[240px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+                  placeholder="搜索技能名、描述…"
+                  className="h-8 pl-8 text-[12.5px]"
+                />
+              </div>
+              <Select value={sourceFilter} onValueChange={(v) => { setSourceFilter(v as typeof sourceFilter); setPage(1); }}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部来源</SelectItem>
+                  <SelectItem value="user_created">私有</SelectItem>
+                  <SelectItem value="admin_assigned">全局</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as typeof statusFilter); setPage(1); }}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部状态</SelectItem>
+                  <SelectItem value="enabled">已启用</SelectItem>
+                  <SelectItem value="disabled">已停用</SelectItem>
+                  <SelectItem value="approval">需审批</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="time-desc">最新优先</SelectItem>
+                  <SelectItem value="time-asc">最早优先</SelectItem>
+                  <SelectItem value="name">按名称</SelectItem>
+                </SelectContent>
+              </Select>
+            </Toolbar>
+
+            {visibleSkills.length === 0 ? (
+              skills.length === 0 ? (
+                <EmptyState
+                  icon={<Zap className="h-5 w-5" />}
+                  title="暂无技能"
+                  description="点击「新建技能」搭一个工作流。技能可以串联多个工具完成更复杂的任务。"
+                  action={
+                    <Button size="sm" onClick={handleCreate} className="gap-1.5">
+                      <Plus className="h-3.5 w-3.5" />
+                      新建技能
                     </Button>
-                  )}
-                </div>
-              </Card>
-            ))
-          )}
+                  }
+                />
+              ) : (
+                <EmptyState
+                  title="没有匹配的技能"
+                  description="调整筛选条件再试一次。"
+                />
+              )
+            ) : (
+              <div className="rounded-lg border border-border bg-card overflow-hidden">
+                <Table className="table-fixed min-w-[760px]">
+                  <colgroup>
+                    <col className="w-[42%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[4%]" />
+                  </colgroup>
+                  <TableHeader>
+                    <TableRow className="border-b-border bg-muted/40 hover:bg-muted/40">
+                      <TableHead className="h-9 px-3">技能</TableHead>
+                      <TableHead className="h-9 px-3">来源</TableHead>
+                      <TableHead className="h-9 px-3 text-right">工具</TableHead>
+                      <TableHead className="h-9 px-3">状态</TableHead>
+                      <TableHead className="h-9 px-3 text-right">7天运行</TableHead>
+                      <TableHead className="h-9 px-3 text-right">P95</TableHead>
+                      <TableHead className="h-9 px-3">更新</TableHead>
+                      <TableHead className="h-9 px-3"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pagedSkills.map((s) => {
+                      // Real per-skill metrics from `/user/skills/metrics`.
+                      // Disabled skills sit at zero (no recorded runs).
+                      const raw = skillMetrics[s.name];
+                      const m = {
+                        runs_7d: s.enabled && raw ? raw.runs_7d : 0,
+                        p95: formatLatencyMs(s.enabled && raw ? raw.p95_ms : 0),
+                      };
+                      const updated = s.created_at
+                        ? new Date(s.created_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+                        : '——';
+                      const sourceLabel = s.source === 'admin_assigned' ? '全局' : '私有';
+                      return (
+                        <TableRow
+                          key={s.id}
+                          onClick={() => handleEdit(s)}
+                          className="cursor-pointer"
+                        >
+                          <TableCell className="min-w-0 px-3 py-1.5">
+                            <div className="flex min-w-0 flex-col">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate text-[13px] font-medium text-foreground">
+                                  {s.display_name || s.name}
+                                </span>
+                                {s.requires_approval && <Pill tone="warning" dot>需审批</Pill>}
+                              </div>
+                              <span className="truncate text-[11.5px] leading-tight text-muted-foreground">
+                                {s.description || s.name}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            <Pill tone="outline">{sourceLabel}</Pill>
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
+                            {(s.required_tools || []).length}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            {/* Switch flips enabled state directly. The 需审批
+                                badge already lives next to the name on the
+                                title cell, no need to duplicate it here. */}
+                            <div
+                              className="flex items-center gap-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Switch
+                                checked={s.enabled}
+                                onCheckedChange={() => handleToggleEnabled(s)}
+                                aria-label={s.enabled ? '点击停用' : '点击启用'}
+                              />
+                              <span className={cn(
+                                'text-[12px]',
+                                s.enabled ? 'text-foreground' : 'text-muted-foreground',
+                              )}>
+                                {s.enabled ? '已启用' : '已停用'}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
+                            {formatRuns(m.runs_7d)}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
+                            {m.p95}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-[12px] text-muted-foreground whitespace-nowrap">
+                            {updated}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            <div className="flex items-center justify-end gap-1">
+                              {isAdminMode && onAssignClick && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); onAssignClick(s); }}
+                                  title="下发给用户"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                                >
+                                  <Send className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleEdit(s); }}
+                                title="编辑"
+                                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              {(isAdminMode || s.source === 'user_created' || !s.source) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(s); }}
+                                  title="删除"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            <TablePagination
+              page={safePage}
+              totalPages={totalPages}
+              totalItems={visibleSkills.length}
+              onPageChange={setPage}
+              hint={`共 ${visibleSkills.length} 条 · 每页 ${SKILLS_PAGE_SIZE}`}
+            />
+          </div>
         </div>
         <ConfirmDialog />
       </div>
     );
   }
 
-  // Create/Edit view
-  return (
-    <div className="container mx-auto p-6 max-w-5xl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={handleCancel}>
-            ← 返回
-          </Button>
-          <Separator orientation="vertical" className="h-4" />
-          <span className="text-sm text-muted-foreground">
-            {viewMode === 'create' ? '创建新技能' : `编辑 · ${formData.display_name || formData.name}`}
-          </span>
+  // Create/Edit view — v3 chrome at 920px container width per design.
+  // Body unchanged so existing AI helper, validation, built-in tools
+  // card all keep working.
+  const skillRequiredTools = (formData.required_tools || []).length;
+
+  // Same desktop-aside / mobile-drawer split as the tool editor (Phase
+  // 1.3). Skill-specific templates seed the textarea before the user
+  // hits the send button which calls the existing handleAIGenerate.
+  const skillAiPanelContent = (
+    <>
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+        <Sparkles className="h-3.5 w-3.5 text-foreground" />
+        <span className="text-[12.5px] font-semibold text-foreground">AI 技能助手</span>
+        <Pill tone="info" className="ml-auto">BETA</Pill>
+      </header>
+
+      <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3.5">
+        <div className="rounded-lg border border-border bg-background px-3 py-2.5 text-[12.5px] leading-relaxed text-foreground">
+          描述你想让 Agent 完成的<strong>业务流程</strong>，我会一次性生成<strong>系统提示 / 工具依赖 / 工作流模板</strong>。可以直接给场景，也可以从已有工具组合开始。
         </div>
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={handleCancel}>取消</Button>
-          <Button
-            onClick={handleSave}
-            disabled={invalidTools.length > 0 || validationErrors.length > 0}
-          >
-            {viewMode === 'create' ? '创建' : '保存'}
-          </Button>
+
+        <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+          示例模板（点击填入）
         </div>
+
+        <div className="flex flex-col gap-2">
+          {(
+            viewMode === 'create'
+              ? [
+                  {
+                    label: '从业务场景描述',
+                    sub: '说清楚用户要解决什么问题，AI 自己挑工具拼流程',
+                    seed:
+                      '我们运营同学每天要处理用户的退款咨询。流程是：\n' +
+                      '1. 收到用户问题后，先按手机号或订单号查到 ERP 里的订单详情；\n' +
+                      '2. 如果是 7 天内的、金额 < 500 的订单，直接发起退款；\n' +
+                      '3. 金额 ≥ 500 或超过 7 天的，需要主管审批；\n' +
+                      '4. 审批通过后调用退款工具，并在飞书 #运营-订单 群同步结果。\n' +
+                      '请生成一个"订单退款助理"技能。',
+                  },
+                  {
+                    label: '从工具组合开始',
+                    sub: '已经有这些工具，告诉 AI 你想怎么串',
+                    seed:
+                      '我已经有这些工具：lookup_orders（查订单）、create_refund（创建退款，需审批）、send_lark_message（发飞书消息）。' +
+                      '希望按这个顺序串：先用 lookup_orders 拉订单，校验状态是 paid 后调 create_refund，' +
+                      '审批通过自动执行，最后用 send_lark_message 在群里同步。' +
+                      '帮我生成对应的系统提示和工作流模板。',
+                  },
+                  {
+                    label: '从对话样本',
+                    sub: '贴一段理想的用户对话，AI 反推 prompt 模板',
+                    seed:
+                      '理想的对话样本：\n' +
+                      '用户：帮我看下 ord_8821 这单能退吗\n' +
+                      'Agent：（调用 lookup_orders）已确认，订单状态 paid，金额 1280。是否需要发起退款？\n' +
+                      '用户：嗯发起一下，原因是商品质量问题\n' +
+                      'Agent：（调用 create_refund，触发审批）已提交审批，等主管确认后会自动处理。\n\n' +
+                      '基于这个样本生成"订单退款助理"技能。',
+                  },
+                ]
+              : [
+                  {
+                    label: '优化系统提示',
+                    sub: 'AI 重写 prompt 模板，更明确地约束行为',
+                    seed:
+                      '当前的系统提示对"何时该走审批"说明不够。请重写它，明确：\n' +
+                      '1. 任何金额变更前必须先用 lookup_orders 确认订单状态；\n' +
+                      '2. 单笔金额 ≥ 1000 一律走审批；\n' +
+                      '3. 审批通过后才执行 create_refund；\n' +
+                      '4. 操作完成必须发飞书消息同步。',
+                  },
+                  {
+                    label: '加一个工具到流程',
+                    sub: 'AI 把新工具插进现有工作流的合适位置',
+                    seed:
+                      '在现有流程中加入 query_warehouse（查库存）工具：' +
+                      '退款前先查库存状态，如果商品已发货且未签收，先创建退货单再退款；' +
+                      '已签收则直接退款。请更新工作流模板和系统提示。',
+                  },
+                  {
+                    label: '调整审批策略',
+                    sub: 'AI 修改 requires_approval 逻辑或阈值',
+                    seed:
+                      '把审批阈值从金额 ≥ 1000 改成 ≥ 500，并新增一个条件：' +
+                      '如果用户最近 30 天内已经发起过 ≥ 3 次退款，无论金额多少都走审批。',
+                  },
+                  {
+                    label: '改写错误处理',
+                    sub: 'AI 调整异常分支与回滚逻辑',
+                    seed:
+                      '当前流程没有处理「订单不存在」「ERP 接口超时」两种异常。' +
+                      '请补充：调用 lookup_orders 失败时，先用 search_kb 查 FAQ 再回退给用户提示；' +
+                      '退款接口超时时不要重试，记录到审计并提醒主管手动处理。',
+                  },
+                ]
+          ).map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setAiDescription(s.seed)}
+              className="flex flex-col gap-0.5 rounded-md border border-border bg-background px-3 py-2 text-left transition-colors hover:bg-accent"
+            >
+              <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+                <Sparkles className="h-3 w-3 text-muted-foreground" />
+                {s.label}
+              </span>
+              <span className="pl-[18px] text-[11px] leading-snug text-muted-foreground">
+                {s.sub}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {aiError && (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+            <span>{aiError}</span>
+          </div>
+        )}
       </div>
 
+      <div className="flex flex-col gap-2 border-t border-border p-3">
+        <AutoGrowTextarea
+          value={aiDescription}
+          onChange={(e) => setAiDescription(e.target.value)}
+          placeholder={
+            viewMode === 'create'
+              ? '描述你想让 Agent 完成的业务流程…'
+              : '描述要改的地方，例如：把审批阈值改成 500 元'
+          }
+          disabled={aiGenerating}
+          minHeight={68}
+          maxHeight={240}
+          className="bg-background text-[12px] leading-relaxed"
+        />
+        <div className="flex items-center gap-2">
+          <Pill tone="outline" mono>
+            {viewMode === 'create' ? '从描述生成' : '在现有技能上修改'}
+          </Pill>
+          <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">
+            {aiGenerating ? '生成中…' : `${aiDescription.length} 字`}
+          </span>
+          <Button
+            size="sm"
+            onClick={handleAIGenerate}
+            disabled={aiGenerating || !aiDescription.trim()}
+            className="h-7 gap-1 px-2.5 text-[12px]"
+          >
+            {aiGenerating
+              ? <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-solid border-current border-r-transparent" />
+              : <Sparkles className="h-3 w-3" />}
+            {aiGenerating ? '生成中' : (viewMode === 'create' ? '生成技能' : '应用修改')}
+          </Button>
+        </div>
+        <p className="font-mono text-[10px] leading-relaxed text-muted-foreground">
+          {viewMode === 'create'
+            ? '生成后会立即填到左侧表单；你可以再手动调整 prompt 模板和工具依赖。'
+            : '会保留技能名 / 启用状态等元数据，只改你描述的部分。'}
+        </p>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      <PageHeader
+        breadcrumb={
+          viewMode === 'create'
+            ? ['工作区', '技能', '新建']
+            : ['工作区', '技能', formData.name || '编辑']
+        }
+        subtitle={viewMode === 'create' ? '新建技能' : '编辑模式'}
+        onCrumbClick={(i) => {
+          if (i === 1) handleCancel();
+        }}
+        actions={
+          <>
+            <Button variant="ghost" size="sm" onClick={handleCancel} className="h-7 px-2 text-[12px]">
+              放弃
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                toast({
+                  title: '预览对话即将开放',
+                  description: '此入口尚未接通沙箱对话；当前先用「保存」后到主对话页测试。',
+                })
+              }
+              className="h-7 gap-1.5 px-3 text-[12px]"
+            >
+              <Play className="h-3.5 w-3.5" />
+              预览对话
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={invalidTools.length > 0 || validationErrors.length > 0}
+              className="h-7 gap-1.5 px-3 text-[12px]"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {viewMode === 'create' ? '创建并保存' : '保存'}
+            </Button>
+          </>
+        }
+      />
+
+      <div className="flex flex-1 min-h-0">
+      <div className="flex-1 overflow-y-auto">
+        {/* Full-bleed page body — content fills the entire main pane.
+            No max-w cap so the form expands to whatever the page
+            offers, matching the v3 layout used elsewhere. */}
+        <div className="w-full px-7 pt-6 pb-12">
+          <div className="mb-5 flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-foreground">
+                {viewMode === 'create'
+                  ? '新建技能'
+                  : (formData.display_name || formData.name || '编辑技能')}
+              </h1>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                {viewMode === 'create'
+                  ? '描述你想让 Agent 完成的工作流，用 AI 助手或手动配置 prompt 模板与依赖工具。'
+                  : (
+                    <>
+                      技能 · {skillRequiredTools} 个工具
+                      {formData.requires_approval && ' · 需审批'}
+                      {formData.name && ` · ${formData.name}`}
+                    </>
+                  )}
+              </p>
+            </div>
+            {viewMode === 'edit' && (
+              formData.enabled
+                ? <Pill tone="success" dot>已启用</Pill>
+                : <Pill tone="neutral" dot>已停用</Pill>
+            )}
+          </div>
+
+          {/* Mobile-only AI helper trigger. Desktop aside hides under
+              md, so we surface the same panel via a Drawer here. */}
+          <button
+            type="button"
+            onClick={() => setAiSheetOpen(true)}
+            className="mb-5 flex w-full items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-accent md:hidden"
+          >
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-foreground" />
+            <span className="flex-1 truncate">
+              <strong className="text-foreground">AI 技能助手</strong>
+              <span className="ml-2">从描述生成系统提示与工作流</span>
+            </span>
+            <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+          </button>
+
       <div className="space-y-8">
-        {/* AI Helper Section */}
+        {/* Old inline AI Helper Card removed — replaced by the
+            desktop right aside / mobile Drawer pattern below. */}
+        {false && (
         <Collapsible defaultOpen={false}>
           <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-secondary/5">
             <CollapsibleTrigger asChild>
@@ -606,104 +1030,97 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
             </CollapsibleContent>
           </Card>
         </Collapsible>
+        )}
 
-        {/* Basic Information */}
-        <Card>
-          <CardHeader>
-            <CardTitle>基础信息</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="skill-name" className="flex items-center gap-2">
-                  技能名称 (name) *
-                  {viewMode === 'edit' && (
-                    <span className="text-xs font-normal text-chart-4">
-                      🔒 编辑时不可修改
-                    </span>
-                  )}
-                </Label>
-                <Input
-                  id="skill-name"
-                  value={formData.name || ''}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  disabled={viewMode === 'edit'}
-                  placeholder="例如: analyze_sentiment"
-                  className={viewMode === 'edit' ? 'cursor-not-allowed' : ''}
-                />
-                <p className="text-sm text-muted-foreground">
-                  {viewMode === 'edit' ? '技能名称是唯一标识符，创建后不可修改' : '用于代码调用的唯一标识符'}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="skill-display-name">显示名称 *</Label>
-                <Input
-                  id="skill-display-name"
-                  value={formData.display_name || ''}
-                  onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                  placeholder="例如: 情感分析"
-                />
-              </div>
-            </div>
+        {/* Basic Information — 12-col grid w/ Field atoms */}
+        <H2 first>基础信息</H2>
+        <div className="grid grid-cols-12 gap-3.5">
+          <Field
+            label={
+              <span className="flex items-center gap-2">
+                技能名 (name)
+                {viewMode === 'edit' && (
+                  <span className="text-[10px] font-normal text-chart-4">🔒 不可修改</span>
+                )}
+              </span>
+            }
+            span={6}
+            required
+            hint={viewMode === 'edit' ? '技能名是唯一标识符，创建后不可修改' : 'snake_case，用于代码调用'}
+          >
+            <Input
+              value={formData.name || ''}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              disabled={viewMode === 'edit'}
+              placeholder="例如: analyze_sentiment"
+              className={cn(
+                'h-8 font-mono text-[12.5px]',
+                viewMode === 'edit' && 'cursor-not-allowed',
+              )}
+            />
+          </Field>
 
-            <div className="space-y-2">
-              <Label htmlFor="skill-category">分类 *</Label>
-              <Select
-                value={formData.category || 'analysis'}
-                onValueChange={(value) => setFormData({ ...formData, category: value })}
-              >
-                <SelectTrigger id="skill-category">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="analysis">分析 (analysis)</SelectItem>
-                  <SelectItem value="extraction">提取 (extraction)</SelectItem>
-                  <SelectItem value="comparison">对比 (comparison)</SelectItem>
-                  <SelectItem value="automation">自动化 (automation)</SelectItem>
-                  <SelectItem value="reporting">报告生成 (reporting)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <Field label="显示名" span={6} required>
+            <Input
+              value={formData.display_name || ''}
+              onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+              placeholder="例如: 情感分析"
+              className="h-8 text-[12.5px]"
+            />
+          </Field>
 
-            <div className="space-y-2">
-              <Label htmlFor="skill-description">描述 *</Label>
-              <Textarea
-                id="skill-description"
-                value={formData.description || ''}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="技能的详细描述"
-                rows={2}
-              />
-            </div>
+          <Field label="分类" span={6} required>
+            <Select
+              value={formData.category || 'analysis'}
+              onValueChange={(value) => setFormData({ ...formData, category: value })}
+            >
+              <SelectTrigger className="h-8 text-[12.5px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="analysis">分析 (analysis)</SelectItem>
+                <SelectItem value="extraction">提取 (extraction)</SelectItem>
+                <SelectItem value="comparison">对比 (comparison)</SelectItem>
+                <SelectItem value="automation">自动化 (automation)</SelectItem>
+                <SelectItem value="reporting">报告生成 (reporting)</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
 
-            <div className="space-y-2">
-              <Label htmlFor="skill-calling-guide">调用指南</Label>
-              <Textarea
-                id="skill-calling-guide"
-                value={formData.calling_guide || ''}
-                onChange={(e) => setFormData({ ...formData, calling_guide: e.target.value })}
-                placeholder="何时使用这个技能以及如何使用"
-                rows={2}
-              />
-              <p className="text-sm text-muted-foreground">这段文字会帮助AI更好地理解和使用技能</p>
-            </div>
-          </CardContent>
-        </Card>
+          <Field label="简介" span={12} required>
+            <Textarea
+              value={formData.description || ''}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="处理订单查询、退款、改地址等常见运营任务，自动调用 ERP 与飞书。"
+              rows={2}
+              className="text-[12.5px]"
+            />
+          </Field>
 
-        {/* Workflow Template */}
-        <Card>
-          <CardHeader>
-            <CardTitle>工作流程模板</CardTitle>
-            <CardDescription className="space-y-2">
-              <span>支持占位符: {'{{input.xxx}}'}, {'{{tool:xxx(...)}}'}, {'{{result.xxx.yyy}}'}</span>
-              <div className="text-xs mt-2 space-y-1">
-                <div><code className="bg-muted px-1.5 py-0.5 rounded">{'{{input.param_name}}'}</code> - 引用输入参数</div>
-                <div><code className="bg-muted px-1.5 py-0.5 rounded">{'{{tool:tool_name(arg="value")}}'}</code> - 调用工具</div>
-                <div><code className="bg-muted px-1.5 py-0.5 rounded">{'{{result.tool_name.field}}'}</code> - 引用工具返回结果</div>
-              </div>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+          <Field
+            label="调用指南"
+            span={12}
+            hint="给 AI 看的「何时该用 / 不该用」提示，帮助模型更精准地选择技能。"
+          >
+            <Textarea
+              value={formData.calling_guide || ''}
+              onChange={(e) => setFormData({ ...formData, calling_guide: e.target.value })}
+              placeholder="何时使用这个技能以及如何使用"
+              rows={2}
+              className="text-[12.5px]"
+            />
+          </Field>
+        </div>
+
+        {/* Workflow Template — flat H2 layout */}
+        <H2>工作流程模板</H2>
+        <div className="-mt-2 mb-4 space-y-1.5 text-[11.5px] text-muted-foreground">
+          <div>支持占位符 <code className="bg-muted px-1.5 py-0.5 rounded">{'{{input.xxx}}'}</code> · <code className="bg-muted px-1.5 py-0.5 rounded">{'{{tool:xxx(...)}}'}</code> · <code className="bg-muted px-1.5 py-0.5 rounded">{'{{result.xxx.yyy}}'}</code></div>
+        </div>
+        <div className="space-y-4">
+            {/* prompt_template lives on a generous fixed-height
+                editor — workflow markup is naturally long-form, and
+                resize-y lets the user pull it taller when needed. */}
             <Textarea
               value={formData.prompt_template || ''}
               onChange={(e) => {
@@ -711,8 +1128,8 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                 if (validationErrors.length > 0) setValidationErrors([]);
               }}
               placeholder={`步骤1: 查询用户信息\n{{tool:query_database(table="users", filter="id={{input.user_id}}")}}\n\n步骤2: 分析行为\n基于结果 {{result.query_database.username}} 进行分析...`}
-              className="font-mono text-sm resize-none"
-              rows={12}
+              className="min-h-[420px] resize-y font-mono text-[12.5px] leading-relaxed"
+              rows={20}
             />
             {validationErrors.length > 0 && (
               <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
@@ -727,23 +1144,19 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
             <p className="text-xs text-muted-foreground text-right">
               {(formData.prompt_template || '').length} 字符
             </p>
-          </CardContent>
-        </Card>
+        </div>
 
-        {/* Approval Setting */}
-        <Card className={hasApprovalTools ? "border-chart-4/30" : ""}>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              {hasApprovalTools && <AlertCircle className="w-5 h-5 text-chart-4" />}
-              审批设置
-            </CardTitle>
-            <CardDescription>
-              {hasApprovalTools
-                ? '检测到依赖的工具中有需要审批的工具，请选择审批方式'
-                : '选择此技能是否需要在执行前进行审批'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        {/* Approval Setting — flat H2 layout */}
+        <H2>{hasApprovalTools ? '审批设置 · 检测到敏感工具' : '审批设置'}</H2>
+        <p className="-mt-2 mb-4 text-[11.5px] text-muted-foreground">
+          {hasApprovalTools
+            ? '检测到依赖的工具中有需要审批的工具，请选择审批方式'
+            : '选择此技能是否需要在执行前进行审批'}
+        </p>
+        <div className={cn(
+          'rounded-lg border p-4 space-y-3',
+          hasApprovalTools ? 'border-chart-4/30' : 'border-border',
+        )}>
             <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors hover:bg-accent">
               <input
                 type="radio"
@@ -784,8 +1197,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
                 </p>
               </div>
             </label>
-          </CardContent>
-        </Card>
+        </div>
 
         {/* Built-in (always-bound) tools — collapsed by default */}
         <Card className="border-primary/20">
@@ -967,6 +1379,24 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ api, toolsApi, onB
           )}
         </Card>
       </div>
+        </div>
+      </div>
+
+      {/* Right pane — desktop AI assistant aside (md+). */}
+      <aside className="hidden w-[380px] flex-shrink-0 flex-col border-l border-border bg-muted/30 md:flex">
+        {skillAiPanelContent}
+      </aside>
+      </div>
+
+      {/* Mobile AI assistant Drawer with the same panel content. */}
+      <Drawer open={aiSheetOpen} onOpenChange={setAiSheetOpen}>
+        <DrawerContent>
+          <div className="mx-auto flex h-[78vh] w-full max-w-md flex-col">
+            {skillAiPanelContent}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
       <ConfirmDialog />
     </div>
   );

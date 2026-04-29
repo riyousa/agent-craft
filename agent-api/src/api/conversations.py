@@ -3,11 +3,38 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete as sql_delete, func
 from src.db import get_db
-from src.models import ConversationHistory
-from src.api.user_schemas import ConversationListItem, ConversationMessagesResponse
+from src.models import ConversationHistory, UserFile
+from src.api.user_schemas import (
+    ConversationListItem,
+    ConversationMessagesResponse,
+    StarConversationRequest,
+)
 from src.api.auth_deps import get_current_user_id
+from src.agent.file_bridge import _extract_local_file_id
 
 router = APIRouter(prefix="/user/conversations", tags=["conversations"])
+
+
+async def _resolve_filename(db: AsyncSession, url: str) -> str:
+    """Best-effort filename for an attached URL.
+
+    For local /assets/<id>?sig=... URLs we look the file up so the chip
+    shows e.g. `screenshot.png` instead of just `123`. data: blobs and
+    legacy `file-xxx` ids fall back to a generic placeholder.
+    """
+    if url.startswith("data:"):
+        return "image"
+    fid = _extract_local_file_id(url)
+    if fid is not None:
+        try:
+            row = await db.execute(select(UserFile).where(UserFile.id == fid))
+            uf = row.scalar_one_or_none()
+            if uf and uf.filename:
+                return uf.filename
+        except Exception:
+            pass
+    tail = url.split("?")[0].rstrip("/").split("/")[-1]
+    return tail or "file"
 
 
 @router.get("/")
@@ -35,6 +62,9 @@ async def list_conversations(
                 id=conv.id, thread_id=conv.thread_id, title=conv.title,
                 message_count=conv.message_count, last_message=conv.last_message,
                 created_at=conv.created_at, updated_at=conv.updated_at,
+                is_starred=bool(conv.is_starred or False),
+                tokens_total=int(conv.tokens_total or 0),
+                tools_called=int(conv.tools_called or 0),
             ) for conv in conversations
         ],
         "total": total,
@@ -121,11 +151,66 @@ async def get_conversation_messages(
                 # New user turn: flush any leftover steps from a prior
                 # incomplete turn before recording the user message.
                 _flush_turn()
-                messages.append({
+                # Multimodal HumanMessage content is a list of blocks
+                # `[{type:text,...}, {type:image_url, image_url:{url}}]`,
+                # where `image_url.url` is the BRIDGED url (data: blob /
+                # `file-xxx`) — fine for the LLM, useless for an `<img>`
+                # tag in the user bubble. We prefer the original
+                # /assets URLs stashed in `additional_kwargs` (added by
+                # `_build_human_message`) and fall back to the bridged
+                # url for legacy turns that don't carry them.
+                raw_content = msg.content if hasattr(msg, 'content') else ""
+                kwargs = getattr(msg, "additional_kwargs", {}) or {}
+                original_urls: list = list(kwargs.get("original_file_urls") or [])
+
+                user_entry: dict = {
                     "role": "user",
-                    "content": msg.content if hasattr(msg, 'content') else "",
                     "timestamp": getattr(msg, "timestamp", None),
-                })
+                }
+                text_parts: list = []
+                files_list: list = []
+
+                if isinstance(raw_content, list):
+                    for block in raw_content:
+                        if not isinstance(block, dict):
+                            continue
+                        if block.get("type") == "text":
+                            t = block.get("text") or ""
+                            if t:
+                                text_parts.append(t)
+                        # image_url blocks intentionally skipped here —
+                        # we'll rebuild `files_list` from original_urls
+                        # (or fall back below) so the URLs are
+                        # browser-renderable.
+                    if original_urls:
+                        for url in original_urls:
+                            name = await _resolve_filename(db, url)
+                            files_list.append({"name": name, "url": url})
+                    else:
+                        # Legacy: no originals stored. Use bridged URLs;
+                        # data: blobs render in `<img>`, file-xxx will
+                        # show up as a chip without a thumbnail.
+                        for block in raw_content:
+                            if not isinstance(block, dict):
+                                continue
+                            if block.get("type") == "image_url":
+                                url = ((block.get("image_url") or {}).get("url") or "")
+                                if not url:
+                                    continue
+                                name = await _resolve_filename(db, url)
+                                files_list.append({"name": name, "url": url})
+                    user_entry["content"] = "".join(text_parts)
+                else:
+                    # Plain string content — modern path stores text
+                    # only and originals on additional_kwargs.
+                    user_entry["content"] = raw_content or ""
+                    if original_urls:
+                        for url in original_urls:
+                            name = await _resolve_filename(db, url)
+                            files_list.append({"name": name, "url": url})
+                if files_list:
+                    user_entry["files"] = files_list
+                messages.append(user_entry)
                 i += 1
                 continue
 
@@ -260,3 +345,28 @@ async def update_conversation_title(
     await db.commit()
 
     return {"message": "Title updated successfully"}
+
+
+@router.put("/{thread_id}/star")
+async def star_conversation(
+    thread_id: str,
+    body: StarConversationRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle the favorite flag (☆) on a conversation."""
+    result = await db.execute(
+        select(ConversationHistory).where(
+            ConversationHistory.thread_id == thread_id,
+            ConversationHistory.user_id == user_id,
+        )
+    )
+    conversation = result.scalar_one_or_none()
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    conversation.is_starred = bool(body.value)
+    await db.commit()
+
+    return {"thread_id": thread_id, "is_starred": conversation.is_starred}

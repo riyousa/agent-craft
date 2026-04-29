@@ -3,10 +3,10 @@ import { userApi, UserTool, ToolParameter, ToolOutputField, ToolsApi, McpExecuti
 import {
   Plus,
   Wrench,
-  Pause,
   Play,
   Edit2,
   Trash2,
+  Send,
   Bot,
   Sparkles,
   AlertCircle,
@@ -17,7 +17,9 @@ import {
   CheckCircle2,
   XCircle,
   ChevronDown,
+  ChevronRight,
   Server,
+  Loader2,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -33,17 +35,30 @@ import {
   Drawer, DrawerClose, DrawerContent, DrawerDescription,
   DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger,
 } from './ui/drawer';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from './ui/table';
+import { Switch } from './ui/switch';
 import { useToast } from '../hooks/use-toast';
 import { useConfirmDialog } from './ui/confirm-dialog';
+import { PageHeader, PageTitle, Toolbar, Pill, EmptyState, H2, Field, AutoGrowTextarea, TablePagination } from './design';
+// Real metrics now come from `/user/tools/metrics`. Formatters live
+// in lib/formatters; `metricsFor` (the old deterministic mock) is gone.
+import { formatCalls, formatLatencyMs } from '../lib/formatters';
+import type { ToolMetricsMap } from '../api/user';
+import { cn } from '../lib/utils';
 
 type ViewMode = 'list' | 'create' | 'edit';
 
 interface ToolsManagerProps {
   api?: ToolsApi;
   onBack?: () => void;
+  /** Optional row-level assign action — when provided AND we're in
+   *  admin mode, the table renders a Send icon button next to Edit. */
+  onAssignClick?: (tool: UserTool) => void;
 }
 
-export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
+export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack, onAssignClick }) => {
   const toolsApi: ToolsApi = api || userApi;
   const isAdminMode = !!api;
   const { toast } = useToast();
@@ -51,12 +66,27 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
   const [tools, setTools] = useState<UserTool[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState<'time-desc' | 'time-asc' | 'name'>('time-desc');
+  // List-view filter state — purely client-side until the backend
+  // exposes server-side filtering hooks (Phase 4).
+  const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'http' | 'mcp'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'user_created' | 'admin_assigned'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled' | 'approval'>('all');
+  // Pagination is purely client-side — `tools` is loaded in full by
+  // listTools() and downstream consumers (skill dep picker etc.) keep
+  // reading the unsliced array. Only the table view is paginated.
+  const TOOLS_PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedTool, setSelectedTool] = useState<UserTool | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [testParamsText, setTestParamsText] = useState('{}');
   const [testDrawerOpen, setTestDrawerOpen] = useState(false);
+  // Mobile-only AI assistant trigger — the desktop right pane hides
+  // under the md breakpoint, so we surface a Drawer with identical
+  // content on smaller viewports.
+  const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [testEndpoint, setTestEndpoint] = useState('');
   const [testMethod, setTestMethod] = useState('POST');
 
@@ -176,6 +206,10 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
     enabled: true,
   });
 
+  // Keyed by `tool.name`; populated alongside the tool list so each
+  // row can look up its 7-day call count + p95 in O(1).
+  const [toolMetrics, setToolMetrics] = useState<ToolMetricsMap>({});
+
   useEffect(() => {
     loadTools();
   }, []);
@@ -183,8 +217,14 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
   const loadTools = async () => {
     setLoading(true);
     try {
-      const data = await toolsApi.listTools();
+      const [data, metrics] = await Promise.all([
+        toolsApi.listTools(),
+        // Admin tool API doesn't expose metrics; only the per-user
+        // endpoint does. Skip silently in admin mode.
+        isAdminMode ? Promise.resolve({} as ToolMetricsMap) : userApi.listToolMetrics().catch(() => ({} as ToolMetricsMap)),
+      ]);
       setTools(data);
+      setToolMetrics(metrics);
     } catch (error) {
       toast({ variant: "destructive", title: "加载失败", description: "无法加载工具列表" });
     } finally {
@@ -673,144 +713,295 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
 
   // List view
   if (viewMode === 'list') {
-    return (
-      <div className="container mx-auto p-6 max-w-7xl">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            {onBack && (
-              <>
-                <Button variant="ghost" size="sm" onClick={onBack}>← 返回</Button>
-                <Separator orientation="vertical" className="h-4" />
-              </>
-            )}
-            <p className="text-sm text-muted-foreground">
-              共 {tools.length} 个工具
-            </p>
-            <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
-              <SelectTrigger className="w-32 h-8">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="time-desc">最新优先</SelectItem>
-                <SelectItem value="time-asc">最早优先</SelectItem>
-                <SelectItem value="name">按名称</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={openMcpDrawer}>
-              <Server className="w-4 h-4 mr-2" />
-              添加 MCP Server
-            </Button>
-            <Button onClick={handleCreate}>
-              <Plus className="w-4 h-4 mr-2" />
-              创建工具
-            </Button>
-          </div>
-        </div>
+    // Filtered + sorted list. Filters apply on top of the existing
+    // sortedTools order. Search matches name/display_name/description.
+    const q = searchQuery.trim().toLowerCase();
+    const visibleTools = sortedTools.filter((t) => {
+      if (q) {
+        const hay = `${t.name} ${t.display_name || ''} ${t.description || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (typeFilter !== 'all') {
+        const isMcp = t.execution?.type === 'mcp';
+        if (typeFilter === 'mcp' && !isMcp) return false;
+        if (typeFilter === 'http' && (isMcp || t.execution?.type === 'sql')) return false;
+      }
+      if (sourceFilter !== 'all') {
+        const src = t.source || 'user_created';
+        if (sourceFilter !== src) return false;
+      }
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'enabled' && !t.enabled) return false;
+        if (statusFilter === 'disabled' && t.enabled) return false;
+        if (statusFilter === 'approval' && !t.requires_approval) return false;
+      }
+      return true;
+    });
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {tools.length === 0 ? (
-            <Card className="col-span-full">
-              <CardContent className="flex flex-col items-center justify-center py-16">
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                  <Wrench className="w-8 h-8 text-muted-foreground" />
-                </div>
-                <h3 className="text-xl font-semibold mb-2">暂无工具</h3>
-                <p className="text-muted-foreground mb-4">点击"创建工具"按钮添加您的第一个API工具</p>
-                <Button onClick={handleCreate}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  创建工具
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            sortedTools.map((tool) => (
-              <Card
-                key={tool.id}
-                className={`flex flex-col transition-all hover:shadow-md ${!tool.enabled ? 'opacity-60' : ''}`}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${tool.enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                        <Wrench className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-base">{tool.display_name}</CardTitle>
-                        <code className="text-xs text-muted-foreground">{tool.name}</code>
-                      </div>
-                    </div>
-                  </div>
-                  <CardDescription className="mt-2 line-clamp-2">{tool.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="flex-1 pb-3">
-                  <div className="flex gap-2 flex-wrap mb-3">
-                    <Badge variant={tool.source === 'user_created' ? 'default' : 'secondary'}>
-                      {tool.source === 'user_created' ? '自建' : '系统'}
-                    </Badge>
-                    {tool.execution?.type === 'mcp' ? (
-                      <Badge variant="outline" className="border-primary/50 text-primary">
-                        <Server className="w-3 h-3 mr-1" /> MCP
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline">
-                        {tool.execution?.config?.method || 'POST'}
-                      </Badge>
-                    )}
-                    {!tool.enabled && <Badge variant="outline">已停用</Badge>}
-                    {tool.requires_approval && (
-                      <Badge variant="outline" className="border-chart-4/50 text-chart-4">
-                        需审批
-                      </Badge>
-                    )}
-                  </div>
-                  {tool.execution?.type === 'mcp' ? (
-                    <p className="text-xs text-muted-foreground truncate font-mono">
-                      {tool.execution.mcp?.url || (tool.execution.mcp?.command || []).join(' ') || ''}
-                      {tool.execution.mcp?.tool_name ? ` · ${tool.execution.mcp.tool_name}` : ''}
-                    </p>
-                  ) : (
-                    tool.execution?.config?.endpoint && (
-                      <p className="text-xs text-muted-foreground truncate font-mono">
-                        {tool.execution.config.endpoint}
-                      </p>
-                    )
-                  )}
-                </CardContent>
-                <Separator />
-                <div className="flex items-center justify-end gap-1 p-3">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleToggleEnabled(tool)}
-                  >
-                    {tool.enabled ? <Pause className="w-4 h-4 mr-1.5" /> : <Play className="w-4 h-4 mr-1.5" />}
-                    {tool.enabled ? '停用' : '启用'}
+    const totalPages = Math.max(1, Math.ceil(visibleTools.length / TOOLS_PAGE_SIZE));
+    const safePage = Math.min(page, totalPages);
+    const pagedTools = visibleTools.slice(
+      (safePage - 1) * TOOLS_PAGE_SIZE,
+      safePage * TOOLS_PAGE_SIZE,
+    );
+
+    const adminCount = tools.filter((t) => t.source === 'admin_assigned').length;
+    const userCount = tools.filter((t) => t.source === 'user_created' || !t.source).length;
+
+    return (
+      <div className="flex h-full flex-col bg-background">
+        <PageHeader
+          breadcrumb={isAdminMode ? ['管理', '全局工具'] : ['工作区', '工具']}
+          subtitle={isAdminMode ? `共 ${tools.length} 个全局工具` : `${adminCount} 全局 · ${userCount} 私有`}
+          actions={
+            onBack ? (
+              <Button variant="ghost" size="sm" onClick={onBack} className="h-7 px-2 text-[12px]">
+                ← 返回
+              </Button>
+            ) : undefined
+          }
+        />
+
+        <div className="flex-1 overflow-y-auto">
+          <div className="w-full px-7 pt-6 pb-12">
+            <PageTitle
+              title={isAdminMode ? '全局工具' : '工具'}
+              description={isAdminMode
+                ? '管理员维护的工具库。在这里编辑或下发给用户；普通用户只能看到自己拥有的工具。'
+                : '工具是 Agent 可以调用的具体能力。HTTP 接口、SQL 查询、JS 脚本均可注册为工具，并支持参数校验、审批策略与权限控制。'}
+              actions={
+                <>
+                  <Button variant="outline" size="sm" onClick={openMcpDrawer} className="gap-1.5">
+                    <Server className="h-3.5 w-3.5" />
+                    导入 MCP 服务
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleEdit(tool)}
-                  >
-                    <Edit2 className="w-4 h-4 mr-1.5" />
-                    编辑
+                  <Button size="sm" onClick={handleCreate} className="gap-1.5">
+                    <Plus className="h-3.5 w-3.5" />
+                    新建工具
                   </Button>
-                  {(isAdminMode || tool.source === 'user_created') && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(tool)}
-                      className="text-chart-5 hover:text-chart-5"
-                    >
-                      <Trash2 className="w-4 h-4 mr-1.5" />
-                      删除
+                </>
+              }
+            />
+
+            <Toolbar>
+              <div className="relative flex-1 min-w-[240px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+                  placeholder="搜索工具名、描述…"
+                  className="h-8 pl-8 text-[12.5px]"
+                />
+              </div>
+              <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v as typeof typeFilter); setPage(1); }}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部类型</SelectItem>
+                  <SelectItem value="http">HTTP</SelectItem>
+                  <SelectItem value="mcp">MCP</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sourceFilter} onValueChange={(v) => { setSourceFilter(v as typeof sourceFilter); setPage(1); }}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部来源</SelectItem>
+                  <SelectItem value="user_created">私有</SelectItem>
+                  <SelectItem value="admin_assigned">全局</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as typeof statusFilter); setPage(1); }}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部状态</SelectItem>
+                  <SelectItem value="enabled">已启用</SelectItem>
+                  <SelectItem value="disabled">已停用</SelectItem>
+                  <SelectItem value="approval">需审批</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
+                <SelectTrigger className="h-8 w-[110px] text-[12.5px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="time-desc">最新优先</SelectItem>
+                  <SelectItem value="time-asc">最早优先</SelectItem>
+                  <SelectItem value="name">按名称</SelectItem>
+                </SelectContent>
+              </Select>
+            </Toolbar>
+
+            {visibleTools.length === 0 ? (
+              tools.length === 0 ? (
+                <EmptyState
+                  icon={<Wrench className="h-5 w-5" />}
+                  title="暂无工具"
+                  description="点击「新建工具」添加你的第一个 API 工具，或导入 MCP 服务批量接入。"
+                  action={
+                    <Button size="sm" onClick={handleCreate} className="gap-1.5">
+                      <Plus className="h-3.5 w-3.5" />
+                      新建工具
                     </Button>
-                  )}
-                </div>
-              </Card>
-            ))
-          )}
+                  }
+                />
+              ) : (
+                <EmptyState
+                  title="没有匹配的工具"
+                  description="调整筛选条件再试一次。"
+                />
+              )
+            ) : (
+              <div className="rounded-lg border border-border bg-card overflow-hidden">
+                <Table className="table-fixed min-w-[760px]">
+                  <colgroup>
+                    <col className="w-[42%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[4%]" />
+                  </colgroup>
+                  <TableHeader>
+                    <TableRow className="border-b-border bg-muted/40 hover:bg-muted/40">
+                      <TableHead className="h-9 px-3">工具</TableHead>
+                      <TableHead className="h-9 px-3">类型</TableHead>
+                      <TableHead className="h-9 px-3">来源</TableHead>
+                      <TableHead className="h-9 px-3">状态</TableHead>
+                      <TableHead className="h-9 px-3 text-right">7天调用</TableHead>
+                      <TableHead className="h-9 px-3 text-right">P95</TableHead>
+                      <TableHead className="h-9 px-3">更新</TableHead>
+                      <TableHead className="h-9 px-3"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pagedTools.map((t) => {
+                      const isMcp = t.execution?.type === 'mcp';
+                      const method = (t.execution?.config?.method || 'POST').toUpperCase();
+                      // Real per-tool metrics from `/user/tools/metrics`.
+                      // Disabled tools sit at zero (no calls), and rows
+                      // that haven't been called recently render as 0 / ——.
+                      const raw = toolMetrics[t.name];
+                      const m = {
+                        calls_7d: t.enabled && raw ? raw.calls_7d : 0,
+                        p95: formatLatencyMs(t.enabled && raw ? raw.p95_ms : 0),
+                      };
+                      const updated = t.created_at
+                        ? new Date(t.created_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+                        : '——';
+                      const sourceLabel = t.source === 'admin_assigned' ? '全局' : '私有';
+                      return (
+                        <TableRow
+                          key={t.id}
+                          onClick={() => handleEdit(t)}
+                          className="cursor-pointer"
+                        >
+                          <TableCell className="min-w-0 px-3 py-1.5">
+                            <div className="flex min-w-0 flex-col">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate font-mono text-[12.5px] font-medium text-foreground">
+                                  {t.name}
+                                </span>
+                                {t.requires_approval && <Pill tone="warning" dot>需审批</Pill>}
+                              </div>
+                              <span className="truncate text-[11.5px] leading-tight text-muted-foreground">
+                                {t.description || t.display_name}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            {isMcp ? (
+                              <Pill tone="info" mono>MCP</Pill>
+                            ) : (
+                              <Pill tone="info" mono>{method}</Pill>
+                            )}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            <Pill tone="outline">{sourceLabel}</Pill>
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            {/* Switch flips enabled state directly. The 需审批
+                                badge already lives next to the name on the
+                                title cell, no need to duplicate it here. */}
+                            <div
+                              className="flex items-center gap-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Switch
+                                checked={t.enabled}
+                                onCheckedChange={() => handleToggleEnabled(t)}
+                                aria-label={t.enabled ? '点击停用' : '点击启用'}
+                              />
+                              <span className={cn(
+                                'text-[12px]',
+                                t.enabled ? 'text-foreground' : 'text-muted-foreground',
+                              )}>
+                                {t.enabled ? '已启用' : '已停用'}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
+                            {formatCalls(m.calls_7d)}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-right font-mono text-[12px] text-muted-foreground">
+                            {m.p95}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5 text-[12px] text-muted-foreground whitespace-nowrap">
+                            {updated}
+                          </TableCell>
+                          <TableCell className="px-3 py-1.5">
+                            <div className="flex items-center justify-end gap-1">
+                              {isAdminMode && onAssignClick && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); onAssignClick(t); }}
+                                  title="下发给用户"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                                >
+                                  <Send className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleEdit(t); }}
+                                title="编辑"
+                                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              {(isAdminMode || t.source === 'user_created' || !t.source) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(t); }}
+                                  title="删除"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            <TablePagination
+              page={safePage}
+              totalPages={totalPages}
+              totalItems={visibleTools.length}
+              onPageChange={setPage}
+              hint={`共 ${visibleTools.length} 条 · 每页 ${TOOLS_PAGE_SIZE}`}
+            />
+          </div>
         </div>
 
         <Drawer open={mcpDrawerOpen} onOpenChange={setMcpDrawerOpen}>
@@ -1043,191 +1234,345 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
     );
   }
 
-  // Form view (Create/Edit)
-  return (
-    <div className="container mx-auto p-6 max-w-5xl">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={handleCancel}>
-            ← 返回
-          </Button>
-          <Separator orientation="vertical" className="h-4" />
-          <span className="text-sm text-muted-foreground">
-            {viewMode === 'create' ? '创建新工具' : `编辑 · ${formData.display_name || formData.name}`}
-          </span>
+  // Form view (Create/Edit) — v3 two-pane layout: form on the left,
+  // AI assistant pinned to a 380px right sidebar (instead of the
+  // legacy inline collapsible card).
+  // The AI panel content is identical on desktop (right aside) and
+  // mobile (Drawer triggered from a button at the top of the form),
+  // so we capture it as a JSX expression and reuse.
+  const aiPanelContent = (
+    <>
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+        <Sparkles className="h-3.5 w-3.5 text-foreground" />
+        <span className="text-[12.5px] font-semibold text-foreground">AI 配置助手</span>
+        <Pill tone="info" className="ml-auto">BETA</Pill>
+      </header>
+
+      <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3.5">
+        <div className="rounded-lg border border-border bg-background px-3 py-2.5 text-[12.5px] leading-relaxed text-foreground">
+          贴 <strong>cURL</strong>、<strong>OpenAPI 片段</strong> 或一段中文描述。我会一次性填好<strong>端点 / 方法 / 鉴权 / 参数 schema / 响应映射</strong>，左侧表单立即更新，你审一遍就能保存。
         </div>
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={handleCancel}>取消</Button>
-          <Button onClick={handleSave}>{viewMode === 'create' ? '创建' : '保存'}</Button>
+
+        <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+          示例模板（点击填入）
         </div>
+
+        <div className="flex flex-col gap-2">
+          {(
+            viewMode === 'create'
+              ? [
+                  {
+                    label: '从 cURL 一键生成',
+                    sub: '复制实际的 curl 命令，AI 解析 method / URL / headers / body',
+                    seed:
+                      "curl -X POST 'https://erp.example.com/api/v2/refunds' \\\n" +
+                      "  -H 'Authorization: Bearer ${ERP_API_TOKEN}' \\\n" +
+                      "  -H 'Content-Type: application/json' \\\n" +
+                      "  -d '{\n" +
+                      '    "order_id": "ord_8821",\n' +
+                      '    "amount": 1280,\n' +
+                      '    "reason": "商品质量问题"\n' +
+                      "  }'",
+                  },
+                  {
+                    label: '从 API 文档片段',
+                    sub: '粘贴接口文档的请求 / 响应说明，AI 抽出参数表',
+                    seed:
+                      'POST /api/v2/refunds — 创建退款单\n\n' +
+                      '请求体 (JSON)：\n' +
+                      '  order_id  string   必填  订单号，必须以 ord_ 开头\n' +
+                      '  amount    number   必填  退款金额，单位元\n' +
+                      '  reason    string   可选  退款原因，会写入审计日志\n\n' +
+                      '响应：\n' +
+                      '  refund_id  string  退款单 ID\n' +
+                      '  status     string  pending | processing | done\n\n' +
+                      '鉴权：Bearer Token，env=ERP_API_TOKEN',
+                  },
+                  {
+                    label: '用中文描述',
+                    sub: '直接说人话，AI 自己推断字段类型 / 必填 / 默认值',
+                    seed:
+                      '需要一个查询用户订单的工具。调用 https://erp.example.com/api/v2/users/{user_id}/orders（GET）。' +
+                      'user_id 必填走路径，days 可选走 query（默认 7，最大 90）。' +
+                      '鉴权用 ${ERP_API_TOKEN} 的 Bearer Token。响应是 orders 数组，每条含 id / amount / status 三个字段。',
+                  },
+                ]
+              : [
+                  {
+                    label: '增加一个参数',
+                    sub: '描述新字段，AI 把它合并进现有 input_schema',
+                    seed:
+                      '在现有参数基础上加一个 limit 字段：integer 类型，最大 100，默认 20，描述"返回结果的最大条数"。',
+                  },
+                  {
+                    label: '修改鉴权方式',
+                    sub: 'AI 重写 execution.config 里的 auth 部分',
+                    seed:
+                      '把鉴权从当前方式改成 Bearer Token，token 走环境变量 ${ERP_API_TOKEN}。其他字段保持不变。',
+                  },
+                  {
+                    label: '补全参数描述',
+                    sub: 'AI 给每个 input/output 字段补一段给模型看的说明',
+                    seed:
+                      '当前每个参数的描述太简单，请基于工具用途补全，强调"何时该传、不传时的行为、取值范围或格式约束"。',
+                  },
+                  {
+                    label: '换一个端点',
+                    sub: '描述新端点，AI 调整 URL / method / 参数映射',
+                    seed:
+                      '把端点从当前的 v2 切到 v3：URL 改成 https://erp.example.com/api/v3/refunds，method 不变，新增一个必填的 idempotency_key（string）走 header。',
+                  },
+                ]
+          ).map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setAiDescription(s.seed)}
+              className="flex flex-col gap-0.5 rounded-md border border-border bg-background px-3 py-2 text-left transition-colors hover:bg-accent"
+            >
+              <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+                <Sparkles className="h-3 w-3 text-muted-foreground" />
+                {s.label}
+              </span>
+              <span className="pl-[18px] text-[11px] leading-snug text-muted-foreground">
+                {s.sub}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {aiError && (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+            <span>{aiError}</span>
+          </div>
+        )}
       </div>
 
-      {/* AI Assistant Section */}
-      <Collapsible defaultOpen={false} className="mb-8">
-        <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-secondary/5">
-          <CollapsibleTrigger asChild>
-            <CardHeader className="cursor-pointer">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5" />
-                  <span>AI配置助手</span>
-                </CardTitle>
-                <ChevronDown className="w-4 h-4 text-muted-foreground transition-transform [[data-state=closed]_&]:rotate-[-90deg]" />
+      <div className="flex flex-col gap-2 border-t border-border p-3">
+        <AutoGrowTextarea
+          value={aiDescription}
+          onChange={(e) => setAiDescription(e.target.value)}
+          placeholder={
+            viewMode === 'create'
+              ? '贴 cURL / 文档片段，或描述这个 API 该怎么调用…'
+              : '描述要改的地方，例如：把鉴权改成 Bearer Token，token 走 env'
+          }
+          disabled={aiLoading}
+          minHeight={68}
+          maxHeight={220}
+          className="bg-background font-mono text-[12px] leading-relaxed"
+        />
+        <div className="flex items-center gap-2">
+          <Pill tone="outline" mono>
+            {viewMode === 'create' ? '从描述生成' : '在现有配置上修改'}
+          </Pill>
+          <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">
+            {aiLoading ? '解析中…' : `${aiDescription.length} 字`}
+          </span>
+          <Button
+            size="sm"
+            onClick={handleAIGenerate}
+            disabled={aiLoading || !aiDescription.trim()}
+            className="h-7 gap-1 px-2.5 text-[12px]"
+          >
+            {aiLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            {aiLoading ? '解析中' : (viewMode === 'create' ? '生成配置' : '应用修改')}
+          </Button>
+        </div>
+        <p className="font-mono text-[10px] leading-relaxed text-muted-foreground">
+          {viewMode === 'create'
+            ? '生成后会立即填到左侧表单；你可以再手动调整。'
+            : '会保留工具名 / 启用状态等元数据，只改你描述的部分。'}
+        </p>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      <PageHeader
+        breadcrumb={
+          viewMode === 'create'
+            ? ['工作区', '工具', '新建']
+            : ['工作区', '工具', formData.name || '编辑']
+        }
+        subtitle={viewMode === 'create' ? '新建工具' : '编辑模式'}
+        onCrumbClick={(i) => {
+          // 工具 → 回到工具列表。「工作区」没有独立路由，作为分组标签
+          // 不响应点击。
+          if (i === 1) handleCancel();
+        }}
+        actions={
+          <>
+            <Button variant="ghost" size="sm" onClick={handleCancel} className="h-7 px-2 text-[12px]">
+              放弃
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openTestDrawer}
+              className="h-7 gap-1.5 px-3 text-[12px]"
+            >
+              <Play className="h-3.5 w-3.5" />
+              测试运行
+            </Button>
+            <Button size="sm" onClick={handleSave} className="h-7 gap-1.5 px-3 text-[12px]">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {viewMode === 'create' ? '创建并保存' : '保存'}
+            </Button>
+          </>
+        }
+      />
+
+      <div className="flex flex-1 min-h-0">
+        {/* Left pane — form body. Fills the entire flex-1 column;
+            the right AI aside takes its own 380px so we don't need
+            an additional inner cap. */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="w-full px-7 pt-6 pb-12">
+            {/* Meta row — icon tile + mono name + connection summary +
+                approval pill. Replaces the generic PageTitle for this
+                editor since the design wants a denser identity row. */}
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+                <Wrench className="h-4 w-4" />
               </div>
-              <CardDescription>
-                {viewMode === 'create'
-                  ? '描述您的API，AI将自动填充下方配置'
-                  : '描述新的API配置需求，AI将帮助您优化工具配置'}
-              </CardDescription>
-            </CardHeader>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent className="space-y-4">
-              <Textarea
-                value={aiDescription}
-                onChange={(e) => setAiDescription(e.target.value)}
-                placeholder={viewMode === 'create'
-                  ? "例如：我需要调用天气查询API。端点是 https://api.weather.com/v1/weather，使用GET方法。需要传入city参数（城市名）。认证方式是在请求头添加X-API-Key，密钥在环境变量WEATHER_API_KEY中。返回的JSON中，天气信息在data.weather对象下，包含temperature、humidity、description字段。"
-                  : "例如：修改端点为新版本v2，增加timeout参数，将认证方式改为Bearer Token"
-                }
-                rows={4}
-                disabled={aiLoading}
-                className="resize-none"
-              />
-              {aiError && (
-                <div className="flex items-center gap-2 text-destructive text-sm">
-                  <AlertCircle className="w-4 h-4" />
-                  <span>{aiError}</span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-[16px] font-semibold tracking-tight text-foreground">
+                  {viewMode === 'create' ? '新建工具' : (formData.name || '编辑工具')}
                 </div>
-              )}
-              <div className="flex items-center gap-3">
-                <Button
-                  onClick={handleAIGenerate}
-                  disabled={aiLoading || !aiDescription.trim()}
-                  className="flex-1"
-                >
-                  {aiLoading ? (
-                    <>
-                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-current border-r-transparent mr-2"></span>
-                      AI生成中...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      {viewMode === 'create' ? '自动生成配置' : 'AI 优化配置'}
-                    </>
-                  )}
-                </Button>
+                <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
+                  {viewMode === 'create'
+                    ? '描述好你的 API，右侧 AI 助手可以从 cURL / 文档自动填表，也可以手动配置。'
+                    : (() => {
+                        const type = formData.execution?.type === 'mcp' ? 'MCP' : 'HTTP';
+                        const method = formData.execution?.config?.method?.toUpperCase() || '';
+                        const source = formData.source === 'admin_assigned' ? '全局工具' : '私有工具';
+                        return [type, method, source].filter(Boolean).join(' · ');
+                      })()}
+                </div>
               </div>
-              {viewMode === 'edit' && (
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Lightbulb className="w-3 h-3" />
-                  提示：AI将在保留工具名称的基础上更新其他配置
-                </p>
+              {viewMode === 'edit' && formData.requires_approval && (
+                <Pill tone="warning" dot>需审批</Pill>
               )}
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
+            </div>
 
-      <div className="space-y-8">
-        {/* Section 1: Basic Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle>基本信息</CardTitle>
-            <CardDescription className="flex items-start gap-2">
-              <Lightbulb className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>工具名称用于代码调用，只能包含字母、数字和下划线。调用指南会帮助AI理解何时使用这个工具。</span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="name" className="flex items-center gap-2">
-                工具名称 (name) *
+            {/* Mobile-only AI helper trigger. The desktop aside on the
+                right is hidden under md, so we expose the same panel
+                here through a Drawer. */}
+            <button
+              type="button"
+              onClick={() => setAiSheetOpen(true)}
+              className="mb-5 flex w-full items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-accent md:hidden"
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-foreground" />
+              <span className="flex-1 truncate">
+                <strong className="text-foreground">AI 配置助手</strong>
+                <span className="ml-2">从 cURL / 描述生成配置</span>
+              </span>
+              <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+            </button>
+
+      <div>
+        {/* Section 1: Basic Info — 12-col grid w/ Field atoms */}
+        <H2 first>基础信息</H2>
+        <p className="-mt-2 mb-4 text-[11.5px] text-muted-foreground">
+          工具名称用于代码调用，只能包含字母、数字和下划线。调用指南会帮助 AI 理解何时使用这个工具。
+        </p>
+        <div className="grid grid-cols-12 gap-3.5">
+          <Field
+            label={
+              <span className="flex items-center gap-2">
+                工具名 (name)
                 {viewMode === 'edit' && (
-                  <span className="text-xs font-normal text-chart-4">
-                    🔒 编辑时不可修改
-                  </span>
+                  <span className="text-[10px] font-normal text-chart-4">🔒 不可修改</span>
                 )}
-              </Label>
-              <Input
-                id="name"
-                value={formData.name || ''}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                disabled={viewMode === 'edit'}
-                placeholder="例如: web_search"
-                className={viewMode === 'edit' ? 'cursor-not-allowed' : ''}
+              </span>
+            }
+            span={6}
+            required
+            hint={
+              viewMode === 'edit'
+                ? '工具名称是唯一标识符，创建后不可修改'
+                : 'snake_case，将作为模型调用时的 tool_call name'
+            }
+          >
+            <Input
+              value={formData.name || ''}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              disabled={viewMode === 'edit'}
+              placeholder="例如: web_search"
+              className={cn(
+                'h-8 font-mono text-[12.5px]',
+                viewMode === 'edit' && 'cursor-not-allowed',
+              )}
+            />
+          </Field>
+
+          <Field label="显示名" span={6} required>
+            <Input
+              value={formData.display_name || ''}
+              onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+              placeholder="例如: 网络搜索"
+              className="h-8 text-[12.5px]"
+            />
+          </Field>
+
+          <Field
+            label="描述（给模型看）"
+            span={12}
+            required
+            hint="清晰描述这个工具的用途、何时该调用、不该调用的场景。模型会基于此判断是否使用。"
+          >
+            <Textarea
+              value={formData.description || ''}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="工具的详细描述，说明它的功能和用途"
+              rows={3}
+              className="text-[12.5px]"
+            />
+          </Field>
+
+          <Field
+            label="调用指南"
+            span={12}
+            hint="给 AI 看的「何时该用 / 不该用」提示，帮助模型更精准地选择工具。"
+          >
+            <Textarea
+              value={formData.calling_guide || ''}
+              onChange={(e) => setFormData({ ...formData, calling_guide: e.target.value })}
+              placeholder="例如：适用于查询实时天气信息，需要提供城市名称"
+              rows={3}
+              className="text-[12.5px]"
+            />
+          </Field>
+
+          <div className="col-span-12 flex flex-wrap gap-x-6 gap-y-2 pt-1">
+            <label className="flex items-center gap-2 text-[12.5px] text-foreground">
+              <input
+                type="checkbox"
+                checked={formData.requires_approval || false}
+                onChange={(e) => setFormData({ ...formData, requires_approval: e.target.checked })}
+                className="h-3.5 w-3.5 rounded"
               />
-              <p className="text-sm text-muted-foreground">
-                {viewMode === 'edit'
-                  ? '工具名称是唯一标识符，创建后不可修改'
-                  : '用于代码调用的唯一标识符，只能包含字母、数字和下划线'
-                }
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="display_name">显示名称 *</Label>
-              <Input
-                id="display_name"
-                value={formData.display_name || ''}
-                onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                placeholder="例如: 网络搜索"
+              调用前需要审批
+            </label>
+            <label className="flex items-center gap-2 text-[12.5px] text-foreground">
+              <input
+                type="checkbox"
+                checked={formData.enabled !== false}
+                onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
+                className="h-3.5 w-3.5 rounded"
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description">描述 *</Label>
-              <Textarea
-                id="description"
-                value={formData.description || ''}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="工具的详细描述，说明它的功能和用途"
-                rows={3}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="calling_guide">调用指南</Label>
-              <Textarea
-                id="calling_guide"
-                value={formData.calling_guide || ''}
-                onChange={(e) => setFormData({ ...formData, calling_guide: e.target.value })}
-                placeholder="帮助AI理解何时以及如何使用这个工具。例如：适用于查询实时天气信息，需要提供城市名称"
-                rows={3}
-              />
-              <p className="text-sm text-muted-foreground">这段文字会帮助AI更好地理解和使用工具</p>
-            </div>
-
-            <div className="flex gap-6">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="requires_approval"
-                  checked={formData.requires_approval || false}
-                  onChange={(e) => setFormData({ ...formData, requires_approval: e.target.checked })}
-                  className="h-4 w-4 rounded"
-                />
-                <Label htmlFor="requires_approval" className="font-normal">调用前需要审批</Label>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="enabled"
-                  checked={formData.enabled !== false}
-                  onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                  className="h-4 w-4 rounded"
-                />
-                <Label htmlFor="enabled" className="font-normal">启用此工具</Label>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              启用此工具
+            </label>
+          </div>
+        </div>
 
         {/* Section 2: Execution Config */}
         {formData.execution?.type === 'mcp' ? (
-          <Card>
+          <Card className="mt-6">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Server className="w-5 h-5" />
@@ -1270,26 +1615,26 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
             </CardContent>
           </Card>
         ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>执行配置</CardTitle>
-            <CardDescription className="space-y-2">
-              <div className="flex items-start gap-2">
-                <Link2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span>配置外部API的端点、认证方式和数据映射。所有配置支持动态占位符替换。</span>
-              </div>
-              <div className="text-xs mt-3 space-y-1">
-                <div><strong>占位符语法：</strong></div>
-                <div>1️⃣ <strong>环境变量</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">$&#123;变量名&#125;</code></div>
-                <div className="pl-6">• 示例：<code className="bg-muted px-1 py-0.5 rounded">$&#123;API_KEY&#125;</code></div>
-                <div>2️⃣ <strong>用户信息</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">$&#123;user.字段名&#125;</code></div>
-                <div className="pl-6">• 可用字段：id, username, name, email, role_level</div>
-                <div>3️⃣ <strong>输入参数</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">&#123;&#123;参数名&#125;&#125;</code></div>
-                <div className="pl-6">• 示例：<code className="bg-muted px-1 py-0.5 rounded">https://api.com/users/&#123;&#123;user_id&#125;&#125;/posts</code></div>
-              </div>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
+        <>
+        <H2>执行配置</H2>
+        <div className="-mt-2 mb-4 space-y-2 text-[11.5px] text-muted-foreground">
+          <div className="flex items-start gap-2">
+            <Link2 className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+            <span>配置外部 API 的端点、认证方式和数据映射。所有配置支持动态占位符替换。</span>
+          </div>
+          <details className="ml-5">
+            <summary className="cursor-pointer text-foreground/80 hover:text-foreground">查看占位符语法</summary>
+            <div className="mt-1 space-y-1">
+              <div>1️⃣ <strong>环境变量</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">$&#123;变量名&#125;</code></div>
+              <div className="pl-6">示例：<code className="bg-muted px-1 py-0.5 rounded">$&#123;API_KEY&#125;</code></div>
+              <div>2️⃣ <strong>用户信息</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">$&#123;user.字段名&#125;</code></div>
+              <div className="pl-6">可用字段：id, username, name, email, role_level</div>
+              <div>3️⃣ <strong>输入参数</strong> - 使用 <code className="bg-muted px-1 py-0.5 rounded">&#123;&#123;参数名&#125;&#125;</code></div>
+              <div className="pl-6">示例：<code className="bg-muted px-1 py-0.5 rounded">https://api.com/users/&#123;&#123;user_id&#125;&#125;/posts</code></div>
+            </div>
+          </details>
+        </div>
+        <div className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="endpoint">API端点 *</Label>
               <Input
@@ -1703,20 +2048,17 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                 </div>
               </DrawerContent>
             </Drawer>
-          </CardContent>
-        </Card>
+        </div>
+        </>
         )}
 
         {/* Section 3: Parameters & Output Schema */}
-        <Card>
-          <CardHeader>
-            <CardTitle>参数与返回值</CardTitle>
-            <CardDescription className="flex items-start gap-2">
-              <ClipboardList className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>定义工具的输入参数和输出结构。参数会被AI自动识别和填充，输出结构帮助AI理解返回的数据格式。</span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-8">
+        <H2>参数与返回值</H2>
+        <p className="-mt-2 mb-4 flex items-start gap-2 text-[11.5px] text-muted-foreground">
+          <ClipboardList className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+          <span>定义工具的输入参数和输出结构。参数会被 AI 自动识别和填充，输出结构帮助 AI 理解返回的数据格式。</span>
+        </p>
+        <div className="space-y-8">
             {/* Input Parameters */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -1872,9 +2214,178 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack }) => {
                 <div className="text-center py-8 text-muted-foreground">暂无字段，点击"添加字段"创建</div>
               )}
             </div>
-          </CardContent>
-        </Card>
+        </div>
       </div>
+          </div>
+        </div>
+
+        {/* Right pane — AI assistant on md+, surfaced through a Drawer
+            on smaller viewports (the trigger button is rendered just
+            above the form body via the same `aiSheetOpen` state). */}
+        <aside className="hidden w-[380px] flex-shrink-0 flex-col border-l border-border bg-muted/30 md:flex">
+          {aiPanelContent}
+        </aside>
+        {false && (
+        <aside className="hidden w-[380px] flex-shrink-0 flex-col border-l border-border bg-muted/30 md:flex">
+          <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+            <Sparkles className="h-3.5 w-3.5 text-foreground" />
+            <span className="text-[12.5px] font-semibold text-foreground">AI 配置助手</span>
+            <Pill tone="info" className="ml-auto">BETA</Pill>
+          </header>
+
+          <div className="flex-1 overflow-y-auto p-3.5 flex flex-col gap-3">
+            {/* Intro — what the helper actually does, not a generic chat. */}
+            <div className="rounded-lg border border-border bg-background px-3 py-2.5 text-[12.5px] leading-relaxed text-foreground">
+              贴 <strong>cURL</strong>、<strong>OpenAPI 片段</strong> 或一段中文描述。我会一次性填好<strong>端点 / 方法 / 鉴权 / 参数 schema / 响应映射</strong>，左侧表单立即更新，你审一遍就能保存。
+            </div>
+
+            <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+              示例模板（点击填入）
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {(
+                viewMode === 'create'
+                  ? [
+                      {
+                        label: '从 cURL 一键生成',
+                        sub: '复制实际的 curl 命令，AI 解析 method / URL / headers / body',
+                        seed:
+                          "curl -X POST 'https://erp.example.com/api/v2/refunds' \\\n" +
+                          "  -H 'Authorization: Bearer ${ERP_API_TOKEN}' \\\n" +
+                          "  -H 'Content-Type: application/json' \\\n" +
+                          "  -d '{\n" +
+                          '    "order_id": "ord_8821",\n' +
+                          '    "amount": 1280,\n' +
+                          '    "reason": "商品质量问题"\n' +
+                          "  }'",
+                      },
+                      {
+                        label: '从 API 文档片段',
+                        sub: '粘贴接口文档的请求 / 响应说明，AI 抽出参数表',
+                        seed:
+                          'POST /api/v2/refunds — 创建退款单\n\n' +
+                          '请求体 (JSON)：\n' +
+                          '  order_id  string   必填  订单号，必须以 ord_ 开头\n' +
+                          '  amount    number   必填  退款金额，单位元\n' +
+                          '  reason    string   可选  退款原因，会写入审计日志\n\n' +
+                          '响应：\n' +
+                          '  refund_id  string  退款单 ID\n' +
+                          '  status     string  pending | processing | done\n\n' +
+                          '鉴权：Bearer Token，env=ERP_API_TOKEN',
+                      },
+                      {
+                        label: '用中文描述',
+                        sub: '直接说人话，AI 自己推断字段类型 / 必填 / 默认值',
+                        seed:
+                          '需要一个查询用户订单的工具。调用 https://erp.example.com/api/v2/users/{user_id}/orders（GET）。' +
+                          'user_id 必填走路径，days 可选走 query（默认 7，最大 90）。' +
+                          '鉴权用 ${ERP_API_TOKEN} 的 Bearer Token。响应是 orders 数组，每条含 id / amount / status 三个字段。',
+                      },
+                    ]
+                  : [
+                      {
+                        label: '增加一个参数',
+                        sub: '描述新字段，AI 把它合并进现有 input_schema',
+                        seed:
+                          '在现有参数基础上加一个 limit 字段：integer 类型，最大 100，默认 20，描述"返回结果的最大条数"。',
+                      },
+                      {
+                        label: '修改鉴权方式',
+                        sub: 'AI 重写 execution.config 里的 auth 部分',
+                        seed:
+                          '把鉴权从当前方式改成 Bearer Token，token 走环境变量 ${ERP_API_TOKEN}。其他字段保持不变。',
+                      },
+                      {
+                        label: '补全参数描述',
+                        sub: 'AI 给每个 input/output 字段补一段给模型看的说明',
+                        seed:
+                          '当前每个参数的描述太简单，请基于工具用途补全，强调"何时该传、不传时的行为、取值范围或格式约束"。',
+                      },
+                      {
+                        label: '换一个端点',
+                        sub: '描述新端点，AI 调整 URL / method / 参数映射',
+                        seed:
+                          '把端点从当前的 v2 切到 v3：URL 改成 https://erp.example.com/api/v3/refunds，method 不变，新增一个必填的 idempotency_key（string）走 header。',
+                      },
+                    ]
+              ).map((s, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setAiDescription(s.seed)}
+                  className="flex flex-col gap-0.5 rounded-md border border-border bg-background px-3 py-2 text-left transition-colors hover:bg-accent"
+                >
+                  <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+                    <Sparkles className="h-3 w-3 text-muted-foreground" />
+                    {s.label}
+                  </span>
+                  <span className="pl-[18px] text-[11px] leading-snug text-muted-foreground">
+                    {s.sub}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {aiError && (
+              <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                <span>{aiError}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2 border-t border-border p-3">
+            <Textarea
+              value={aiDescription}
+              onChange={(e) => setAiDescription(e.target.value)}
+              placeholder={
+                viewMode === 'create'
+                  ? '贴 cURL / 文档片段，或描述这个 API 该怎么调用…'
+                  : '描述要改的地方，例如：把鉴权改成 Bearer Token，token 走 env'
+              }
+              rows={3}
+              disabled={aiLoading}
+              className="min-h-[68px] resize-none bg-background font-mono text-[12px] leading-relaxed"
+            />
+            <div className="flex items-center gap-2">
+              <Pill tone="outline" mono>
+                {viewMode === 'create' ? '从描述生成' : '在现有配置上修改'}
+              </Pill>
+              <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">
+                {aiLoading ? '解析中…' : `${aiDescription.length} 字`}
+              </span>
+              <Button
+                size="sm"
+                onClick={handleAIGenerate}
+                disabled={aiLoading || !aiDescription.trim()}
+                className="h-7 gap-1 px-2.5 text-[12px]"
+              >
+                {aiLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                {aiLoading ? '解析中' : (viewMode === 'create' ? '生成配置' : '应用修改')}
+              </Button>
+            </div>
+            <p className="font-mono text-[10px] leading-relaxed text-muted-foreground">
+              {viewMode === 'create'
+                ? '生成后会立即填到左侧表单；你可以再手动调整。'
+                : '会保留工具名 / 启用状态等元数据，只改你描述的部分。'}
+            </p>
+          </div>
+        </aside>
+        )}
+      </div>
+
+      {/* Mobile AI assistant — Drawer with the same panel content as
+          the desktop right aside. Triggered from a button rendered at
+          the top of the form body (mobile only). */}
+      <Drawer open={aiSheetOpen} onOpenChange={setAiSheetOpen}>
+        <DrawerContent>
+          <div className="mx-auto flex h-[78vh] w-full max-w-md flex-col">
+            {aiPanelContent}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
       <ConfirmDialog />
     </div>
   );

@@ -24,6 +24,47 @@ from src.services.llm_service import LLMConfigError, ModelConfig, resolve_model
 from src.utils.logger import agent_logger
 
 
+def _sanitize_user_content(content: Any) -> Any:
+    """Strip image_url blocks whose URL the provider can't dereference.
+
+    Background: a previous turn may have stored an `image_url` block with
+    a Doubao Files API id (`file-xxx`). Replaying that on the next turn
+    fails with HTTP 400 ("Only base64, http or https URLs are
+    supported") because the chat endpoint expects a directly-fetchable
+    URL or a `data:` URI. The bridge produces those for new turns, but
+    checkpointed history keeps the old format. We replace each problem
+    block with a text reference so the model still sees an attachment
+    existed; for fully-formed URLs (data:/http(s):/oss:/) we leave the
+    block alone so vision still works on the live turn.
+    """
+    if not isinstance(content, list):
+        return content
+    cleaned: list = []
+    for block in content:
+        if not isinstance(block, dict):
+            cleaned.append(block)
+            continue
+        if block.get("type") == "image_url":
+            url = ((block.get("image_url") or {}).get("url") or "")
+            lower = url.lower()
+            ok = (
+                lower.startswith("data:")
+                or lower.startswith("http://")
+                or lower.startswith("https://")
+                or lower.startswith("oss://")
+            )
+            if ok:
+                cleaned.append(block)
+            else:
+                cleaned.append({
+                    "type": "text",
+                    "text": f"[历史附件: {url or '已失效'}]",
+                })
+        else:
+            cleaned.append(block)
+    return cleaned
+
+
 class OpenAICompatibleLLM(BaseChatModel):
     """OpenAI-compatible chat model driven by a `ModelConfig`."""
 
@@ -137,7 +178,7 @@ class OpenAICompatibleLLM(BaseChatModel):
                 if isinstance(msg, SystemMessage):
                     formatted_messages.append({"role": "system", "content": msg.content})
                 elif isinstance(msg, HumanMessage):
-                    formatted_messages.append({"role": "user", "content": msg.content})
+                    formatted_messages.append({"role": "user", "content": _sanitize_user_content(msg.content)})
                 elif isinstance(msg, ToolMessage):
                     formatted_messages.append({
                         "role": "tool",
@@ -209,9 +250,21 @@ class OpenAICompatibleLLM(BaseChatModel):
                 thinking_content = ""
                 tool_calls: list = []
                 tool_calls_dict: dict = {}
+                # Token usage is only emitted on the final chunk when
+                # `stream_options.include_usage` is set; we ask for it
+                # here so the chat finally-block aggregator can sum
+                # total_tokens into `conversation_history.tokens_total`.
+                api_params["stream_options"] = {"include_usage": True}
+                usage_total = 0
 
                 stream = await client.chat.completions.create(**api_params)
                 async for chunk in stream:
+                    # Final usage-only chunk has no `choices`, only `usage`.
+                    if hasattr(chunk, 'usage') and chunk.usage:
+                        try:
+                            usage_total = int(chunk.usage.total_tokens or 0)
+                        except (TypeError, ValueError):
+                            usage_total = 0
                     if not (chunk.choices and len(chunk.choices) > 0):
                         continue
                     delta = chunk.choices[0].delta
@@ -252,6 +305,11 @@ class OpenAICompatibleLLM(BaseChatModel):
                 additional_kwargs = {}
                 if thinking_content:
                     additional_kwargs['thinking'] = thinking_content
+                if usage_total:
+                    # Stash on the AIMessage so the checkpointer keeps it;
+                    # the chat finally-block sums these into
+                    # `conversation_history.tokens_total`.
+                    additional_kwargs['usage_total_tokens'] = usage_total
 
                 ai_message = (
                     AIMessage(content=content, tool_calls=tool_calls, additional_kwargs=additional_kwargs)
@@ -276,10 +334,16 @@ class OpenAICompatibleLLM(BaseChatModel):
                                 "args": args,
                                 "id": tc.id,
                             })
+                    additional_kwargs = {}
+                    try:
+                        if response.usage and response.usage.total_tokens:
+                            additional_kwargs['usage_total_tokens'] = int(response.usage.total_tokens)
+                    except Exception:
+                        pass
                     ai_message = (
-                        AIMessage(content=content, tool_calls=tool_calls)
+                        AIMessage(content=content, tool_calls=tool_calls, additional_kwargs=additional_kwargs)
                         if tool_calls
-                        else AIMessage(content=content)
+                        else AIMessage(content=content, additional_kwargs=additional_kwargs)
                     )
                 else:
                     ai_message = AIMessage(content="抱歉，我没有收到有效的响应。")

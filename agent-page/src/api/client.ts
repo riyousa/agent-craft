@@ -124,6 +124,10 @@ export interface ConversationListItem {
   last_message: string;
   created_at: string;
   updated_at: string;
+  // Per-conversation aggregates populated by `GET /user/conversations`.
+  is_starred?: boolean;
+  tokens_total?: number;
+  tools_called?: number;
 }
 
 export interface ConversationMessagesResponse {
@@ -279,6 +283,11 @@ export const chatApi = {
     await apiClient.put(`/user/conversations/${threadId}/title`, null, {
       params: { title },
     });
+  },
+
+  starConversation: async (threadId: string, value: boolean): Promise<{ thread_id: string; is_starred: boolean }> => {
+    const response = await apiClient.put(`/user/conversations/${threadId}/star`, { value });
+    return response.data;
   },
 
   approve: async (threadId: string): Promise<any> => {
