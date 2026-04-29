@@ -35,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handleAuthError = (event: Event) => {
       const customEvent = event as CustomEvent<{ message: string; code?: string }>;
-      const { message, code } = customEvent.detail;
+      const { message } = customEvent.detail;
 
       toast({
         title: '认证失败',

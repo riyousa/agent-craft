@@ -1,3 +1,6 @@
+// JSON payload examples are quoted literally inside template strings;
+// the `\"` escapes are intentional, not noise.
+/* eslint-disable no-useless-escape */
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';

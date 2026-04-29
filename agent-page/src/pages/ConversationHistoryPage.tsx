@@ -55,7 +55,6 @@ import {
   PageHeader,
   PageTitle,
   Toolbar,
-  Pill,
   EmptyState,
 } from '../components/design';
 import { cn } from '../lib/utils';
@@ -77,7 +76,7 @@ const TIME_RANGES = [
 
 function parseServerTime(s: string | null | undefined): number {
   if (!s) return 0;
-  const hasTz = /Z$|[+\-]\d{2}:?\d{2}$/.test(s);
+  const hasTz = /Z$|[+-]\d{2}:?\d{2}$/.test(s);
   const t = new Date(hasTz ? s : s + 'Z').getTime();
   return isNaN(t) ? 0 : t;
 }

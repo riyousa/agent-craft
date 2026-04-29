@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { chatApi } from '../api/client';
 import {
-  Activity, Clock, Zap, AlertCircle, CheckCircle2, XCircle,
-  ChevronDown, ChevronRight, Loader2, RefreshCw,
+  Activity, Clock, Zap, CheckCircle2, XCircle,
+  Loader2, RefreshCw,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';

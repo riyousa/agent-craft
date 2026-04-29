@@ -61,7 +61,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   // UTC strings.
   const parseServerTime = (s: string | null | undefined): number => {
     if (!s) return 0;
-    const hasTz = /Z$|[+\-]\d{2}:?\d{2}$/.test(s);
+    const hasTz = /Z$|[+-]\d{2}:?\d{2}$/.test(s);
     const t = new Date(hasTz ? s : s + 'Z').getTime();
     return isNaN(t) ? 0 : t;
   };
@@ -168,7 +168,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
     // browser the parsed instant is 8h earlier than reality, so the relative
     // formatter below would print "8小时前". Force UTC interpretation by
     // appending Z when no offset is present.
-    const hasTz = /Z$|[+\-]\d{2}:?\d{2}$/.test(dateString);
+    const hasTz = /Z$|[+-]\d{2}:?\d{2}$/.test(dateString);
     const date = new Date(hasTz ? dateString : dateString + 'Z');
     if (isNaN(date.getTime())) return '未知时间';
 

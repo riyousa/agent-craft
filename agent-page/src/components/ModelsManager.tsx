@@ -16,7 +16,6 @@ import {
   Activity,
   CheckCircle2,
   XCircle,
-  AlertCircle,
   Brain,
   Paperclip,
   KeyRound,
@@ -102,6 +101,7 @@ export const ModelsManager: React.FC = () => {
 
   useEffect(() => {
     loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const openCreate = () => {
@@ -237,7 +237,6 @@ export const ModelsManager: React.FC = () => {
   };
 
   const handleProviderChange = (key: string) => {
-    const spec = providers.find((p) => p.key === key);
     setForm((prev) => ({
       ...prev,
       provider: key,

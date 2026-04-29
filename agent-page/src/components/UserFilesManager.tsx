@@ -1,16 +1,12 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { userApi, UserFile, WorkspaceInfo } from '../api/user';
 import {
-  Upload, Download, Trash2, File, FileText,
-  Image as ImageIcon, Video, Music, Archive, Code,
-  Loader2, HardDrive, FolderOpen, Sparkles, FlaskConical, Files, Paperclip, Link2, Copy, Eye,
+  Upload, Download, Trash2,
+  Loader2, FolderOpen, Sparkles, FlaskConical, Files, Paperclip, Link2, Eye,
   Search, MoreHorizontal,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Button } from './ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Badge } from './ui/badge';
-import { Separator } from './ui/separator';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
@@ -131,23 +127,7 @@ export const UserFilesManager: React.FC = () => {
 
   const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString('zh-CN');
 
-  // 文件图标使用 chart 配色
-  const getFileIcon = (filename: string) => {
-    const ext = filename.split('.').pop()?.toLowerCase();
-    if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext || ''))
-      return <ImageIcon className="w-5 h-5 text-chart-4" />;
-    if (['mp4', 'avi', 'mov', 'webm'].includes(ext || ''))
-      return <Video className="w-5 h-5 text-chart-5" />;
-    if (['mp3', 'wav', 'ogg', 'flac'].includes(ext || ''))
-      return <Music className="w-5 h-5 text-chart-2" />;
-    if (['zip', 'rar', 'tar', 'gz', '7z'].includes(ext || ''))
-      return <Archive className="w-5 h-5 text-chart-3" />;
-    if (['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'go', 'rs'].includes(ext || ''))
-      return <Code className="w-5 h-5 text-chart-1" />;
-    if (['txt', 'md', 'doc', 'docx', 'pdf'].includes(ext || ''))
-      return <FileText className="w-5 h-5 text-muted-foreground" />;
-    return <File className="w-5 h-5 text-muted-foreground" />;
-  };
+  // (Old `getFileIcon` helper removed — v3 layout uses <FileThumb>.)
 
   const storagePercent = workspaceInfo
     ? Math.min((workspaceInfo.used_storage_mb / workspaceInfo.max_storage_mb) * 100, 100)

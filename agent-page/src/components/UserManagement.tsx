@@ -1,17 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { adminUserApi, ManagedUser } from '../api/client';
 import {
-  Users, Plus, Edit2, Trash2, KeyRound, Search, Tag,
-  Shield, ShieldCheck, User as UserIcon, Ban, CheckCircle, ArrowUpDown,
+  Users, Plus, Edit2, Trash2, KeyRound, Search,
+  Ban, CheckCircle, ArrowUpDown,
   MoreHorizontal, Loader2,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Badge } from './ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Separator } from './ui/separator';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -29,12 +26,6 @@ import {
   PageHeader, PageTitle, Pill, StatCard, EmptyState, Toolbar, TablePagination,
 } from './design';
 import { cn } from '../lib/utils';
-
-const ROLE_MAP: Record<number, { label: string; icon: React.ElementType; color: string }> = {
-  1: { label: '普通用户', icon: UserIcon, color: '' },
-  2: { label: '管理员', icon: Shield, color: 'text-chart-1' },
-  3: { label: '超级管理员', icon: ShieldCheck, color: 'text-chart-4' },
-};
 
 export const UserManagement: React.FC = () => {
   const { toast } = useToast();

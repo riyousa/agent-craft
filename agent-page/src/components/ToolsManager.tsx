@@ -1,3 +1,8 @@
+// `${ENV_VAR}` shows up inside several quoted help strings on this
+// page (cURL examples, OpenAPI snippets) — they're intentional literal
+// placeholders, not template-string typos. Disable the warning here
+// rather than peppering the file with per-line suppressions.
+/* eslint-disable no-template-curly-in-string */
 import React, { useState, useEffect } from 'react';
 import { userApi, UserTool, ToolParameter, ToolOutputField, ToolsApi, McpExecutionConfig, DiscoveredMcpTool } from '../api/user';
 import {
@@ -7,16 +12,13 @@ import {
   Edit2,
   Trash2,
   Send,
-  Bot,
   Sparkles,
   AlertCircle,
-  Lightbulb,
   Link2,
   ClipboardList,
   Search,
   CheckCircle2,
   XCircle,
-  ChevronDown,
   ChevronRight,
   Server,
   Loader2,
@@ -26,14 +28,12 @@ import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Separator } from './ui/separator';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { JsonEditor } from './ui/json-editor';
 import {
   Drawer, DrawerClose, DrawerContent, DrawerDescription,
-  DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger,
+  DrawerFooter, DrawerHeader, DrawerTitle,
 } from './ui/drawer';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -212,6 +212,7 @@ export const ToolsManager: React.FC<ToolsManagerProps> = ({ api, onBack, onAssig
 
   useEffect(() => {
     loadTools();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadTools = async () => {
